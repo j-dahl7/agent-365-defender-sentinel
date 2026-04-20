@@ -18,13 +18,20 @@ resource ruleJailbreakBurst 'Microsoft.OperationalInsights/workspaces/providers/
     query: '''
 let lookback = 15m;
 union isfuzzy=true
-  (datatable(TimeGenerated:datetime, AlertName:string, AlertSeverity:string, CompromisedEntity:string)[]),
+  (datatable(TimeGenerated:datetime, AlertName:string, AlertType:string, AlertSeverity:string, CompromisedEntity:string)[]),
   (SecurityAlert
     | where TimeGenerated > ago(lookback)
-    | where AlertName has_any ("Jailbreak", "BlockedJailbreak", "Agentic_Jailbreak", "Jailbreak.ContentFiltering"))
-| summarize count(), make_set(AlertName), arg_max(TimeGenerated, *) by CompromisedEntity
+    | where AlertName has_any ("Jailbreak", "jailbreak")
+        or AlertType in~ (
+            "AI.Azure_Jailbreak.ContentFiltering.BlockedAttempt",
+            "AI.Azure_Jailbreak.ContentFiltering.DetectedAttempt",
+            "AI.Azure_Agentic_Jailbreak",
+            "Azure_Agentic_BlockedJailbreak",
+            "AI.Azure_Agentic_BlockedJailbreak"
+        ))
+| summarize count(), make_set(AlertName), make_set(AlertType), arg_max(TimeGenerated, *) by CompromisedEntity
 | where count_ >= 2
-| project TimeGenerated, CompromisedEntity, AlertName, AlertSeverity, AttemptCount=count_
+| project TimeGenerated, CompromisedEntity, AlertName, AlertType, AlertSeverity, AttemptCount=count_
 '''
     queryFrequency: 'PT15M'
     queryPeriod: 'PT15M'
