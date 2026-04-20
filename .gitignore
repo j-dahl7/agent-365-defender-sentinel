@@ -1,0 +1,6 @@
+.venv/
+__pycache__/
+*.pyc
+agent/agent.json
+*.bicepparam
+.DS_Store

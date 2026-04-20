@@ -1,0 +1,55 @@
+// Agent 365 Defender Lab - Sentinel KQL
+// These queries match the rules deployed by infra/sentinel-rules.bicep.
+
+// Rule 1: Agent jailbreak attempts
+let lookback = 15m;
+union isfuzzy=true
+  (datatable(TimeGenerated:datetime, AlertName:string, AlertSeverity:string, CompromisedEntity:string)[]),
+  (SecurityAlert
+    | where TimeGenerated > ago(lookback)
+    | where AlertName has_any ("Jailbreak", "BlockedJailbreak", "Agentic_Jailbreak", "Jailbreak.ContentFiltering"))
+| summarize count(), make_set(AlertName), arg_max(TimeGenerated, *) by CompromisedEntity
+| where count_ >= 2
+| project TimeGenerated, CompromisedEntity, AlertName, AlertSeverity, AttemptCount=count_
+
+// Rule 2: Indirect prompt injection / ASCII smuggling
+union isfuzzy=true
+  (datatable(TimeGenerated:datetime, AlertName:string, AlertSeverity:string, CompromisedEntity:string, Description:string)[]),
+  (SecurityAlert
+    | where TimeGenerated > ago(1h)
+    | where AlertName has_any ("ASCIISmuggling", "Agentic_ASCIISmuggling", "MaliciousUrl.ToolOutput", "Agentic_MaliciousUrl.ToolOutput"))
+| project TimeGenerated, AlertName, AlertSeverity, CompromisedEntity, Description
+
+// Rule 3: System instruction leak / reconnaissance
+let reconLookback = 1h;
+union isfuzzy=true
+  (datatable(TimeGenerated:datetime, AlertName:string, CompromisedEntity:string, Description:string)[]),
+  (SecurityAlert
+    | where TimeGenerated > ago(reconLookback)
+    | where AlertName has_any ("InstructionLeakage", "Agentic_InstructionLeakage", "LLMReconnaissance", "LLMReconaissance", "Agentic_LLMReconaissance"))
+| summarize AttemptCount=count(), make_set(AlertName), arg_max(TimeGenerated, *) by CompromisedEntity
+| where AttemptCount >= 2
+| project TimeGenerated, CompromisedEntity, AlertName, AttemptCount, Description
+
+// Rule 4: Credential theft / sensitive data leak
+union isfuzzy=true
+  (datatable(TimeGenerated:datetime, AlertName:string, AlertSeverity:string, CompromisedEntity:string, Description:string)[]),
+  (SecurityAlert
+    | where TimeGenerated > ago(1h)
+    | where AlertName has_any ("CredentialTheftAttempt", "SensitiveDataAnomaly", "Agentic_SensitiveDataAnomaly"))
+| project TimeGenerated, AlertName, AlertSeverity, CompromisedEntity, Description
+
+// Rule 5: Anomalous tool invocation / high-volume abuse
+union isfuzzy=true
+  (datatable(TimeGenerated:datetime, AlertName:string, AlertSeverity:string, CompromisedEntity:string, Description:string)[]),
+  (SecurityAlert
+    | where TimeGenerated > ago(1h)
+    | where AlertName has_any ("AnomalousToolInvocation", "Agentic_DOWVolumeAnomaly", "AccessFromSuspiciousUserAgent", "AccessFromAnonymizedIP"))
+| project TimeGenerated, AlertName, AlertSeverity, CompromisedEntity, Description
+
+// Hunting: Azure AI Services request volume after enabling diagnostics.
+AzureDiagnostics
+| where TimeGenerated > ago(24h)
+| where ResourceProvider == "MICROSOFT.COGNITIVESERVICES"
+| summarize Requests=count() by Resource, Category, bin(TimeGenerated, 15m)
+| order by TimeGenerated desc
