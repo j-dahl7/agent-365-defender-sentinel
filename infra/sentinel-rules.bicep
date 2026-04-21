@@ -69,11 +69,17 @@ resource ruleXPIA 'Microsoft.OperationalInsights/workspaces/providers/alertRules
     enabled: true
     query: '''
 union isfuzzy=true
-  (datatable(TimeGenerated:datetime, AlertName:string, AlertSeverity:string, CompromisedEntity:string, Description:string)[]),
+  (datatable(TimeGenerated:datetime, AlertName:string, AlertType:string, AlertSeverity:string, CompromisedEntity:string, Description:string)[]),
   (SecurityAlert
     | where TimeGenerated > ago(1h)
-    | where AlertName has_any ("ASCIISmuggling", "Agentic_ASCIISmuggling", "MaliciousUrl.ToolOutput", "Agentic_MaliciousUrl.ToolOutput"))
-| project TimeGenerated, AlertName, AlertSeverity, CompromisedEntity, Description
+    | where AlertName has_any ("ASCII smuggling", "ASCIISmuggling", "indirect prompt", "prompt injection")
+        or AlertType in~ (
+            "AI.Azure_ASCIISmuggling",
+            "AI.Azure_Agentic_ASCIISmuggling",
+            "AI.Azure_MaliciousUrl.ToolOutput",
+            "AI.Azure_Agentic_MaliciousUrl.ToolOutput"
+        ))
+| project TimeGenerated, AlertName, AlertType, AlertSeverity, CompromisedEntity, Description
 '''
     queryFrequency: 'PT10M'
     queryPeriod: 'PT1H'
@@ -109,13 +115,19 @@ resource ruleInstructionLeak 'Microsoft.OperationalInsights/workspaces/providers
     query: '''
 let lookback = 1h;
 union isfuzzy=true
-  (datatable(TimeGenerated:datetime, AlertName:string, CompromisedEntity:string, Description:string)[]),
+  (datatable(TimeGenerated:datetime, AlertName:string, AlertType:string, CompromisedEntity:string, Description:string)[]),
   (SecurityAlert
     | where TimeGenerated > ago(lookback)
-    | where AlertName has_any ("InstructionLeakage", "Agentic_InstructionLeakage", "LLMReconnaissance", "LLMReconaissance", "Agentic_LLMReconaissance"))
-| summarize AttemptCount=count(), make_set(AlertName), arg_max(TimeGenerated, *) by CompromisedEntity
+    | where AlertName has_any ("Instruction leak", "instruction leak", "InstructionLeakage", "LLM reconnaissance", "LLMReconnaissance", "reconnaissance probe")
+        or AlertType in~ (
+            "AI.Azure_InstructionLeakage",
+            "AI.Azure_Agentic_InstructionLeakage",
+            "AI.Azure_LLMReconaissance",
+            "AI.Azure_Agentic_LLMReconaissance"
+        ))
+| summarize AttemptCount=count(), make_set(AlertName), make_set(AlertType), arg_max(TimeGenerated, *) by CompromisedEntity
 | where AttemptCount >= 2
-| project TimeGenerated, CompromisedEntity, AlertName, AttemptCount, Description
+| project TimeGenerated, CompromisedEntity, AlertName, AlertType, AttemptCount, Description
 '''
     queryFrequency: 'PT15M'
     queryPeriod: 'PT1H'
@@ -150,11 +162,16 @@ resource ruleCredentialLeak 'Microsoft.OperationalInsights/workspaces/providers/
     enabled: true
     query: '''
 union isfuzzy=true
-  (datatable(TimeGenerated:datetime, AlertName:string, AlertSeverity:string, CompromisedEntity:string, Description:string)[]),
+  (datatable(TimeGenerated:datetime, AlertName:string, AlertType:string, AlertSeverity:string, CompromisedEntity:string, Description:string)[]),
   (SecurityAlert
     | where TimeGenerated > ago(1h)
-    | where AlertName has_any ("CredentialTheftAttempt", "SensitiveDataAnomaly", "Agentic_SensitiveDataAnomaly"))
-| project TimeGenerated, AlertName, AlertSeverity, CompromisedEntity, Description
+    | where AlertName has_any ("credential theft", "CredentialTheftAttempt", "sensitive data", "SensitiveDataAnomaly")
+        or AlertType in~ (
+            "AI.Azure_CredentialTheftAttempt",
+            "AI.Azure_SensitiveDataAnomaly",
+            "AI.Azure_Agentic_SensitiveDataAnomaly"
+        ))
+| project TimeGenerated, AlertName, AlertType, AlertSeverity, CompromisedEntity, Description
 '''
     queryFrequency: 'PT10M'
     queryPeriod: 'PT1H'
@@ -189,11 +206,17 @@ resource ruleAnomalousTool 'Microsoft.OperationalInsights/workspaces/providers/a
     enabled: true
     query: '''
 union isfuzzy=true
-  (datatable(TimeGenerated:datetime, AlertName:string, AlertSeverity:string, CompromisedEntity:string, Description:string)[]),
+  (datatable(TimeGenerated:datetime, AlertName:string, AlertType:string, AlertSeverity:string, CompromisedEntity:string, Description:string)[]),
   (SecurityAlert
     | where TimeGenerated > ago(1h)
-    | where AlertName has_any ("AnomalousToolInvocation", "Agentic_DOWVolumeAnomaly", "AccessFromSuspiciousUserAgent", "AccessFromAnonymizedIP"))
-| project TimeGenerated, AlertName, AlertSeverity, CompromisedEntity, Description
+    | where AlertName has_any ("anomalous tool", "AnomalousToolInvocation", "suspicious user agent", "anonymized IP", "DOW volume")
+        or AlertType in~ (
+            "AI.Azure_AnomalousToolInvocation",
+            "AI.Azure_Agentic_DOWVolumeAnomaly",
+            "AI.Azure_AccessFromSuspiciousUserAgent",
+            "AI.Azure_AccessFromAnonymizedIP"
+        ))
+| project TimeGenerated, AlertName, AlertType, AlertSeverity, CompromisedEntity, Description
 '''
     queryFrequency: 'PT10M'
     queryPeriod: 'PT1H'
