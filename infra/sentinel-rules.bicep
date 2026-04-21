@@ -21,6 +21,7 @@ union isfuzzy=true
   (datatable(TimeGenerated:datetime, AlertName:string, AlertType:string, AlertSeverity:string, CompromisedEntity:string)[]),
   (SecurityAlert
     | where TimeGenerated > ago(lookback)
+    | where ProviderName != "ASI Scheduled Alerts"
     | where AlertName has_any ("Jailbreak", "jailbreak")
         or AlertType in~ (
             "AI.Azure_Jailbreak.ContentFiltering.BlockedAttempt",
@@ -72,6 +73,7 @@ union isfuzzy=true
   (datatable(TimeGenerated:datetime, AlertName:string, AlertType:string, AlertSeverity:string, CompromisedEntity:string, Description:string)[]),
   (SecurityAlert
     | where TimeGenerated > ago(1h)
+    | where ProviderName != "ASI Scheduled Alerts"
     | where AlertName has_any ("ASCII smuggling", "ASCIISmuggling", "indirect prompt", "prompt injection")
         or AlertType in~ (
             "AI.Azure_ASCIISmuggling",
@@ -118,6 +120,7 @@ union isfuzzy=true
   (datatable(TimeGenerated:datetime, AlertName:string, AlertType:string, CompromisedEntity:string, Description:string)[]),
   (SecurityAlert
     | where TimeGenerated > ago(lookback)
+    | where ProviderName != "ASI Scheduled Alerts"
     | where AlertName has_any ("Instruction leak", "instruction leak", "InstructionLeakage", "LLM reconnaissance", "LLMReconnaissance", "reconnaissance probe")
         or AlertType in~ (
             "AI.Azure_InstructionLeakage",
@@ -165,6 +168,7 @@ union isfuzzy=true
   (datatable(TimeGenerated:datetime, AlertName:string, AlertType:string, AlertSeverity:string, CompromisedEntity:string, Description:string)[]),
   (SecurityAlert
     | where TimeGenerated > ago(1h)
+    | where ProviderName != "ASI Scheduled Alerts"
     | where AlertName has_any ("credential theft", "CredentialTheftAttempt", "sensitive data", "SensitiveDataAnomaly")
         or AlertType in~ (
             "AI.Azure_CredentialTheftAttempt",
@@ -209,6 +213,7 @@ union isfuzzy=true
   (datatable(TimeGenerated:datetime, AlertName:string, AlertType:string, AlertSeverity:string, CompromisedEntity:string, Description:string)[]),
   (SecurityAlert
     | where TimeGenerated > ago(1h)
+    | where ProviderName != "ASI Scheduled Alerts"
     | where AlertName has_any ("anomalous tool", "AnomalousToolInvocation", "suspicious user agent", "anonymized IP", "DOW volume")
         or AlertType in~ (
             "AI.Azure_AnomalousToolInvocation",
