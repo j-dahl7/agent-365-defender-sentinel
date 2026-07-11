@@ -6,10 +6,16 @@ targetScope = 'resourceGroup'
 @description('Name of the Sentinel-onboarded Log Analytics workspace.')
 param workspaceName string
 
+resource workspace 'Microsoft.OperationalInsights/workspaces@2022-10-01' existing = {
+  name: workspaceName
+}
+
 // ---- Rule 1: Agent jailbreak burst (detected or blocked) ----
 
-resource ruleJailbreakBurst 'Microsoft.OperationalInsights/workspaces/providers/alertRules@2023-02-01-preview' = {
-  name: '${workspaceName}/Microsoft.SecurityInsights/agent365-jailbreak-burst'
+resource ruleJailbreakBurst 'Microsoft.SecurityInsights/alertRules@2024-03-01' = {
+  scope: workspace
+  name: 'agent365-jailbreak-burst'
+  kind: 'Scheduled'
   properties: {
     displayName: 'LAB - Agent Jailbreak Attempts (burst)'
     description: 'Detects a burst of jailbreak attempts against a Foundry AI agent within 15 minutes. Correlates detected + blocked attempts.'
@@ -61,8 +67,10 @@ union isfuzzy=true
 
 // ---- Rule 2: Indirect prompt injection / XPIA on agent ----
 
-resource ruleXPIA 'Microsoft.OperationalInsights/workspaces/providers/alertRules@2023-02-01-preview' = {
-  name: '${workspaceName}/Microsoft.SecurityInsights/agent365-xpia-ascii-smuggling'
+resource ruleXPIA 'Microsoft.SecurityInsights/alertRules@2024-03-01' = {
+  scope: workspace
+  name: 'agent365-xpia-ascii-smuggling'
+  kind: 'Scheduled'
   properties: {
     displayName: 'LAB - Indirect Prompt Injection (XPIA/ASCII Smuggling) on AI Agent'
     description: 'Detects indirect prompt injection attempts targeting Foundry agents. Covers ASCII smuggling (invisible unicode) and malicious content embedded in RAG/tool data.'
@@ -107,8 +115,10 @@ union isfuzzy=true
 
 // ---- Rule 3: Instruction prompt leak / reconnaissance ----
 
-resource ruleInstructionLeak 'Microsoft.OperationalInsights/workspaces/providers/alertRules@2023-02-01-preview' = {
-  name: '${workspaceName}/Microsoft.SecurityInsights/agent365-instruction-leak'
+resource ruleInstructionLeak 'Microsoft.SecurityInsights/alertRules@2024-03-01' = {
+  scope: workspace
+  name: 'agent365-instruction-leak'
+  kind: 'Scheduled'
   properties: {
     displayName: 'LAB - AI Agent Instruction Leak / Reconnaissance'
     description: 'Correlates system-prompt leakage attempts with reconnaissance probes — common precursors to jailbreak or prompt-injection campaigns.'
@@ -156,8 +166,10 @@ union isfuzzy=true
 
 // ---- Rule 4: Credential theft / sensitive data leak via agent ----
 
-resource ruleCredentialLeak 'Microsoft.OperationalInsights/workspaces/providers/alertRules@2023-02-01-preview' = {
-  name: '${workspaceName}/Microsoft.SecurityInsights/agent365-credential-data-leak'
+resource ruleCredentialLeak 'Microsoft.SecurityInsights/alertRules@2024-03-01' = {
+  scope: workspace
+  name: 'agent365-credential-data-leak'
+  kind: 'Scheduled'
   properties: {
     displayName: 'LAB - AI Agent Exposed Credentials or Sensitive Data'
     description: 'Fires when Defender for AI detects credentials or sensitive data in agent responses — indicates model/tool compromise or prompt-injected exfiltration.'
@@ -201,8 +213,10 @@ union isfuzzy=true
 
 // ---- Rule 5: Anomalous tool invocation pattern ----
 
-resource ruleAnomalousTool 'Microsoft.OperationalInsights/workspaces/providers/alertRules@2023-02-01-preview' = {
-  name: '${workspaceName}/Microsoft.SecurityInsights/agent365-anomalous-tool-invocation'
+resource ruleAnomalousTool 'Microsoft.SecurityInsights/alertRules@2024-03-01' = {
+  scope: workspace
+  name: 'agent365-anomalous-tool-invocation'
+  kind: 'Scheduled'
   properties: {
     displayName: 'LAB - AI Agent Anomalous Tool Invocation or Volume Anomaly'
     description: 'Detects tool abuse or wallet/DOW volume anomalies against a Foundry AI agent. May indicate prohibited-action exploitation or DDoS-style attack.'

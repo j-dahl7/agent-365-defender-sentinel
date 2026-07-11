@@ -52,7 +52,7 @@ VENV="$LAB_DIR/.venv"
 if [ ! -d "$VENV" ]; then
   python3 -m venv "$VENV"
 fi
-"$VENV/bin/pip" install --quiet --upgrade "azure-identity>=1.19.0" "openai>=1.59.0"
+"$VENV/bin/pip" install --quiet --upgrade -r "$LAB_DIR/requirements.txt"
 pushd "$LAB_DIR/agent" >/dev/null
 AI_SERVICES_ENDPOINT="$AI_SERVICES_ENDPOINT" MODEL_DEPLOYMENT="$MODEL_DEPLOYMENT" "$VENV/bin/python" create_agent.py
 popd >/dev/null

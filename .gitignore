@@ -2,5 +2,6 @@
 __pycache__/
 *.pyc
 agent/agent.json
+evidence/
 *.bicepparam
 .DS_Store
