@@ -97,7 +97,7 @@ resource aiServices 'Microsoft.CognitiveServices/accounts@2024-10-01' = {
   properties: {
     customSubDomainName: aiServicesName
     publicNetworkAccess: 'Enabled'
-    disableLocalAuth: false
+    disableLocalAuth: true
   }
 }
 
@@ -252,4 +252,3 @@ output aiServicesEndpoint string = aiServices.properties.endpoint
 output aiServicesName string = aiServices.name
 output openAIDeploymentName string = modelDeployment.name
 output acrLoginServer string = acr.properties.loginServer
-output appInsightsConnectionString string = appInsights.properties.ConnectionString

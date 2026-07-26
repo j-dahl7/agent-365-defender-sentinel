@@ -6,13 +6,24 @@ targetScope = 'resourceGroup'
 @description('Name of the Sentinel-onboarded Log Analytics workspace.')
 param workspaceName string
 
+@description('Stable owner marker verified by deploy and cleanup scripts.')
+@minLength(1)
+param ownerMarker string
+
+@description('Deployment identifier recorded in the local provenance manifest and resource-group tag.')
+@minLength(16)
+param deploymentId string
+
+var ownershipSuffix = '[Owner: ${ownerMarker}; Deployment: ${deploymentId}]'
+
 // ---- Rule 1: Agent jailbreak burst (detected or blocked) ----
 
 resource ruleJailbreakBurst 'Microsoft.OperationalInsights/workspaces/providers/alertRules@2023-02-01-preview' = {
   name: '${workspaceName}/Microsoft.SecurityInsights/agent365-jailbreak-burst'
+  kind: 'Scheduled'
   properties: {
     displayName: 'LAB - Agent Jailbreak Attempts (burst)'
-    description: 'Detects a burst of jailbreak attempts against a Foundry AI agent within 15 minutes. Correlates detected + blocked attempts.'
+    description: 'Detects a burst of jailbreak attempts against a Foundry AI agent within 15 minutes. Correlates detected + blocked attempts. ${ownershipSuffix}'
     severity: 'High'
     enabled: true
     query: '''
@@ -63,9 +74,10 @@ union isfuzzy=true
 
 resource ruleXPIA 'Microsoft.OperationalInsights/workspaces/providers/alertRules@2023-02-01-preview' = {
   name: '${workspaceName}/Microsoft.SecurityInsights/agent365-xpia-ascii-smuggling'
+  kind: 'Scheduled'
   properties: {
     displayName: 'LAB - Indirect Prompt Injection (XPIA/ASCII Smuggling) on AI Agent'
-    description: 'Detects indirect prompt injection attempts targeting Foundry agents. Covers ASCII smuggling (invisible unicode) and malicious content embedded in RAG/tool data.'
+    description: 'Detects indirect prompt injection attempts targeting Foundry agents. Covers ASCII smuggling (invisible unicode) and malicious content embedded in RAG/tool data. ${ownershipSuffix}'
     severity: 'High'
     enabled: true
     query: '''
@@ -109,9 +121,10 @@ union isfuzzy=true
 
 resource ruleInstructionLeak 'Microsoft.OperationalInsights/workspaces/providers/alertRules@2023-02-01-preview' = {
   name: '${workspaceName}/Microsoft.SecurityInsights/agent365-instruction-leak'
+  kind: 'Scheduled'
   properties: {
     displayName: 'LAB - AI Agent Instruction Leak / Reconnaissance'
-    description: 'Correlates system-prompt leakage attempts with reconnaissance probes — common precursors to jailbreak or prompt-injection campaigns.'
+    description: 'Correlates system-prompt leakage attempts with reconnaissance probes - common precursors to jailbreak or prompt-injection campaigns. ${ownershipSuffix}'
     severity: 'Medium'
     enabled: true
     query: '''
@@ -158,9 +171,10 @@ union isfuzzy=true
 
 resource ruleCredentialLeak 'Microsoft.OperationalInsights/workspaces/providers/alertRules@2023-02-01-preview' = {
   name: '${workspaceName}/Microsoft.SecurityInsights/agent365-credential-data-leak'
+  kind: 'Scheduled'
   properties: {
     displayName: 'LAB - AI Agent Exposed Credentials or Sensitive Data'
-    description: 'Fires when Defender for AI detects credentials or sensitive data in agent responses — indicates model/tool compromise or prompt-injected exfiltration.'
+    description: 'Fires when Defender for AI detects credentials or sensitive data in agent responses - indicates model/tool compromise or prompt-injected exfiltration. ${ownershipSuffix}'
     severity: 'High'
     enabled: true
     query: '''
@@ -203,9 +217,10 @@ union isfuzzy=true
 
 resource ruleAnomalousTool 'Microsoft.OperationalInsights/workspaces/providers/alertRules@2023-02-01-preview' = {
   name: '${workspaceName}/Microsoft.SecurityInsights/agent365-anomalous-tool-invocation'
+  kind: 'Scheduled'
   properties: {
     displayName: 'LAB - AI Agent Anomalous Tool Invocation or Volume Anomaly'
-    description: 'Detects tool abuse or wallet/DOW volume anomalies against a Foundry AI agent. May indicate prohibited-action exploitation or DDoS-style attack.'
+    description: 'Detects tool abuse or wallet/DOW volume anomalies against a Foundry AI agent. May indicate prohibited-action exploitation or DDoS-style attack. ${ownershipSuffix}'
     severity: 'Medium'
     enabled: true
     query: '''
