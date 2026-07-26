@@ -2,5 +2,7 @@
 __pycache__/
 *.pyc
 agent/agent.json
+.agent365-lab-state.json
+.agent365-lab-state.json.tmp.*
 *.bicepparam
 .DS_Store

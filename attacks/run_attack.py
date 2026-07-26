@@ -22,11 +22,14 @@ Scenarios:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from azure.identity import DefaultAzureCredential, get_bearer_token_provider
 from openai import AzureOpenAI, BadRequestError
@@ -37,6 +40,7 @@ from tools import TOOL_REGISTRY  # noqa: E402
 AI_SERVICES_ENDPOINT = os.environ["AI_SERVICES_ENDPOINT"].rstrip("/")
 MODEL_DEPLOYMENT = os.environ.get("MODEL_DEPLOYMENT", "gpt-4-1-mini")
 AGENT_FILE = Path(__file__).resolve().parent.parent / "agent" / "agent.json"
+EVIDENCE_DIR = Path(__file__).resolve().parent.parent / "evidence"
 
 
 def _tag(s: str) -> str:
@@ -79,6 +83,96 @@ SCENARIOS: dict[str, str] = {
 }
 
 
+SENSITIVE_FIELD_NAMES = {
+    "api_key",
+    "access_token",
+    "authorization",
+    "body",
+    "client_secret",
+    "content",
+    "cookie",
+    "credential",
+    "credentials",
+    "password",
+    "passphrase",
+    "private_key",
+    "refresh_token",
+    "secret",
+    "set_cookie",
+    "ssh_private_key",
+    "token",
+}
+
+
+def _preview_json(value: Any, limit: int = 700) -> str:
+    try:
+        rendered = json.dumps(value, sort_keys=True)
+    except TypeError:
+        rendered = repr(value)
+    return rendered[:limit]
+
+
+def _redact_value(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            key: (
+                "[redacted]"
+                if str(key).strip().lower().replace("-", "_") in SENSITIVE_FIELD_NAMES
+                else _redact_value(inner)
+            )
+            for key, inner in value.items()
+        }
+    if isinstance(value, list):
+        return [_redact_value(item) for item in value]
+    return value
+
+
+def _summarize_agent_response(response: str) -> str:
+    """Return non-content evidence that a model response was received."""
+    encoded = response.encode("utf-8")
+    digest = hashlib.sha256(encoded).hexdigest()[:16]
+    return f"response received (utf8_bytes={len(encoded)}, sha256={digest})"
+
+
+def _summarize_tool_result(tool_name: str, result: Any) -> dict[str, Any]:
+    if not isinstance(result, dict):
+        return {"result_type": type(result).__name__}
+
+    if tool_name == "search_docs":
+        return {
+            "title": result.get("title"),
+            "content_length": len(str(result.get("content", ""))) if "content" in result else 0,
+        }
+
+    if tool_name == "lookup_customer":
+        return {"returned_fields": sorted(result.keys())}
+
+    if tool_name == "send_email":
+        return {
+            "sent": result.get("sent"),
+            "to": result.get("to"),
+            "subject": result.get("subject"),
+            "body_len": result.get("body_len"),
+        }
+
+    return {"result_keys": sorted(result.keys())}
+
+
+def _write_tool_evidence(scenario: str, tool_name: str, args: dict[str, Any], result: Any) -> None:
+    EVIDENCE_DIR.mkdir(parents=True, exist_ok=True)
+    result_keys = sorted(result.keys()) if isinstance(result, dict) else []
+    record = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "scenario": scenario,
+        "tool": tool_name,
+        "args_preview": _preview_json(_redact_value(args)),
+        "result_keys": result_keys,
+        "result_summary": _summarize_tool_result(tool_name, result),
+    }
+    with (EVIDENCE_DIR / "tool-calls.jsonl").open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record, sort_keys=True) + "\n")
+
+
 def _build_client() -> AzureOpenAI:
     token_provider = get_bearer_token_provider(
         DefaultAzureCredential(), "https://cognitiveservices.azure.com/.default"
@@ -94,7 +188,13 @@ def _load_agent() -> dict:
     return json.loads(AGENT_FILE.read_text())
 
 
-def run_prompt(client: AzureOpenAI, agent: dict, user_prompt: str, max_turns: int = 6) -> str:
+def run_prompt(
+    client: AzureOpenAI,
+    agent: dict,
+    user_prompt: str,
+    max_turns: int = 6,
+    scenario_name: str = "manual",
+) -> str:
     """Send a prompt, handle tool calls, return final response."""
     messages: list[dict] = [
         {"role": "system", "content": agent["system_instructions"]},
@@ -138,7 +238,10 @@ def run_prompt(client: AzureOpenAI, agent: dict, user_prompt: str, max_turns: in
                 result = handler(**args) if handler else {"error": f"unknown tool {name}"}
             except TypeError as e:
                 result = {"error": f"bad args: {e}"}
-            print(f"    tool -> {name}({args}) => {json.dumps(result)[:180]}")
+            _write_tool_evidence(scenario_name, name, args, result)
+            safe_args = _redact_value(args)
+            safe_result = _redact_value(result)
+            print(f"    tool -> {name}({safe_args}) => {json.dumps(safe_result)[:180]}")
             messages.append({
                 "role": "tool",
                 "tool_call_id": tc.id,
@@ -168,7 +271,13 @@ def main() -> int:
             print("blasting 200 small requests to trigger volume anomaly...")
             for i in range(200):
                 try:
-                    run_prompt(client, agent, f"quick question #{i}: what's the weather like?", max_turns=1)
+                    run_prompt(
+                        client,
+                        agent,
+                        f"quick question #{i}: what's the weather like?",
+                        max_turns=1,
+                        scenario_name=s,
+                    )
                 except Exception as e:
                     print(f"  request {i} error: {type(e).__name__}")
                 if i % 20 == 0:
@@ -176,10 +285,10 @@ def main() -> int:
             continue
         print(f"prompt: {prompt[:140]}")
         try:
-            response = run_prompt(client, agent, prompt)
-            print(f"agent: {(response or '')[:400]}")
+            response = run_prompt(client, agent, prompt, scenario_name=s)
+            print(f"agent: {_summarize_agent_response(response or '')}")
         except Exception as e:
-            print(f"error: {type(e).__name__}: {e}")
+            print(f"error: {type(e).__name__}")
         if scenario == "all":
             time.sleep(10)
     return 0

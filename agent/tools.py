@@ -13,6 +13,7 @@ indirect prompt injection detection in Defender for AI / Prompt Shields.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -65,7 +66,10 @@ def send_email(to: str, subject: str, body: str) -> dict[str, Any]:
 
 def search_docs(title: str) -> dict[str, Any]:
     rag_dir = Path(__file__).resolve().parent / "rag-docs"
-    candidates = list(rag_dir.glob(f"{title}*.md")) + list(rag_dir.glob(f"*{title}*.md"))
+    matches = list(rag_dir.glob(f"{title}*.md")) + list(rag_dir.glob(f"*{title}*.md"))
+    # The title arrives straight from the model, so a '..' segment would walk the
+    # glob out of the corpus. Keep only the matches that still resolve inside it.
+    candidates = [path for path in matches if path.resolve().is_relative_to(rag_dir)]
     if not candidates:
         return {"error": f"no document titled '{title}'"}
     content = candidates[0].read_text()
