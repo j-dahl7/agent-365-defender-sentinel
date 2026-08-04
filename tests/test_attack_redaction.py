@@ -121,12 +121,12 @@ class AttackRedactionTests(unittest.TestCase):
 
         self.assertEqual(
             requirements,
-            ["azure-identity>=1.25.3,<2.0.0", "openai>=2.48.0,<3.0.0"],
+            ["azure-identity>=1.25.3,<2.0.0", "openai>=2.50.0,<3.0.0"],
         )
         self.assertIn('--require-hashes -r "$LAB_DIR/requirements.lock"', deploy_source)
         self.assertNotIn('"azure-identity>=', deploy_source)
         self.assertIn("azure-identity==1.25.3", lock)
-        self.assertIn("openai==2.48.0", lock)
+        self.assertIn("openai==2.53.0", lock)
         self.assertGreaterEqual(lock.count("--hash=sha256:"), 20)
         self.assertIn("subscription-level Defender for AI Services Standard", readme)
         self.assertIn("can affect billing", readme)
