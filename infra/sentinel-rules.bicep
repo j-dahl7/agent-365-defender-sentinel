@@ -45,7 +45,10 @@ union isfuzzy=true
 | where count_ >= 2
 | project TimeGenerated, CompromisedEntity, AlertName, AlertType, AlertSeverity, AttemptCount=count_
 '''
-    queryFrequency: 'PT15M'
+    // Run every 5 minutes over a 15-minute window so consecutive evaluations
+    // overlap. At PT15M/PT15M the windows are adjacent, so a burst split across
+    // a boundary lands as one alert per window and never reaches count_ >= 2.
+    queryFrequency: 'PT5M'
     queryPeriod: 'PT15M'
     triggerOperator: 'GreaterThan'
     triggerThreshold: 0
