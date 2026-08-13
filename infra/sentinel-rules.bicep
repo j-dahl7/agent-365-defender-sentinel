@@ -60,10 +60,10 @@ union isfuzzy=true
     }
     entityMappings: [
       {
-        entityType: 'CloudApplication'
+        entityType: 'AzureResource'
         fieldMappings: [
           {
-            identifier: 'Name'
+            identifier: 'ResourceId'
             columnName: 'CompromisedEntity'
           }
         ]
@@ -100,10 +100,10 @@ union isfuzzy=true
     tactics: ['Impact']
     entityMappings: [
       {
-        entityType: 'CloudApplication'
+        entityType: 'AzureResource'
         fieldMappings: [
           {
-            identifier: 'Name'
+            identifier: 'ResourceId'
             columnName: 'CompromisedEntity'
           }
         ]
@@ -143,10 +143,10 @@ union isfuzzy=true
     tactics: ['Reconnaissance']
     entityMappings: [
       {
-        entityType: 'CloudApplication'
+        entityType: 'AzureResource'
         fieldMappings: [
           {
-            identifier: 'Name'
+            identifier: 'ResourceId'
             columnName: 'CompromisedEntity'
           }
         ]
@@ -183,10 +183,10 @@ union isfuzzy=true
     tactics: ['CredentialAccess', 'LateralMovement', 'Exfiltration']
     entityMappings: [
       {
-        entityType: 'CloudApplication'
+        entityType: 'AzureResource'
         fieldMappings: [
           {
-            identifier: 'Name'
+            identifier: 'ResourceId'
             columnName: 'CompromisedEntity'
           }
         ]
@@ -231,10 +231,10 @@ union isfuzzy=true
     tactics: ['Execution', 'Reconnaissance', 'InitialAccess', 'Impact']
     entityMappings: [
       {
-        entityType: 'CloudApplication'
+        entityType: 'AzureResource'
         fieldMappings: [
           {
-            identifier: 'Name'
+            identifier: 'ResourceId'
             columnName: 'CompromisedEntity'
           }
         ]
