@@ -8,8 +8,8 @@ Writes agent.json with:
 
 The runtime agent loop lives in attacks/run_attack.py and uses Azure OpenAI
 chat completions with function-calling. Defender for AI Services covers the
-model deployment, and Agent 365 (GA May 1) brings the broader control-plane
-story for Foundry, Copilot Studio, and registered agents.
+model deployment. This local loop is not onboarded to Agent 365 and does not
+exercise Agent 365 observability or agent-level protection.
 """
 
 from __future__ import annotations

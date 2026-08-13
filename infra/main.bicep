@@ -1,11 +1,11 @@
-// Agent 365 Defender Lab - Foundry project with hosted AI agent, Defender for AI enabled
+// Agent 365-era Defender lab - Azure AI model endpoint with Foundry scaffolding.
 // Companion to blog: "AI Agents Are Running in Containers. Here's the Defender Playbook."
 //
 // Defender for AI Services plan is configured at subscription scope (see deploy-lab.sh).
 
 targetScope = 'resourceGroup'
 
-@description('Deployment location. Foundry hosted agents require specific regions; eastus2 is recommended.')
+@description('Deployment location. Model and Foundry resource availability varies by region; eastus2 is the lab default.')
 param location string = 'eastus2'
 
 @description('Short suffix appended to resource names for uniqueness.')

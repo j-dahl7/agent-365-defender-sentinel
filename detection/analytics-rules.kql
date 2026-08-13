@@ -1,85 +1,67 @@
-// Agent 365 Defender Lab - Sentinel KQL
+// Agent 365-era lab - current Defender for AI Services Sentinel KQL.
 // These queries mirror the rules deployed by infra/sentinel-rules.bicep.
-// Each rule matches on AlertName (substring) AND AlertType (stable identifier)
-// to survive display-text renames and cover GA + preview agentic alert IDs.
+// AlertType values are limited to identifiers in Microsoft's current "Alerts
+// for AI services" reference. Retired AI.Azure_Agentic_* identifiers are not
+// a supported current contract and are intentionally excluded.
 
-// Rule 1: Agent jailbreak attempts (burst)
+// Rule 1: Azure AI model jailbreak attempts (burst)
 let lookback = 15m;
 union isfuzzy=true
   (datatable(TimeGenerated:datetime, AlertName:string, AlertType:string, AlertSeverity:string, CompromisedEntity:string)[]),
   (SecurityAlert
     | where TimeGenerated > ago(lookback)
     | where ProviderName != "ASI Scheduled Alerts"
-    | where AlertName has_any ("Jailbreak", "jailbreak")
-        or AlertType in~ (
+    | where AlertType in~ (
             "AI.Azure_Jailbreak.ContentFiltering.BlockedAttempt",
-            "AI.Azure_Jailbreak.ContentFiltering.DetectedAttempt",
-            "AI.Azure_Agentic_Jailbreak",
-            "Azure_Agentic_BlockedJailbreak",
-            "AI.Azure_Agentic_BlockedJailbreak"
+            "AI.Azure_Jailbreak.ContentFiltering.DetectedAttempt"
         ))
 | summarize AttemptCount=count(), AlertNames=make_set(AlertName), AlertTypes=make_set(AlertType), arg_max(TimeGenerated, *) by CompromisedEntity
 | where AttemptCount >= 2
 
-// Rule 2: Indirect prompt injection / ASCII smuggling
+// Rule 2: ASCII smuggling against an Azure AI model deployment
 union isfuzzy=true
   (datatable(TimeGenerated:datetime, AlertName:string, AlertType:string, AlertSeverity:string, CompromisedEntity:string, Description:string)[]),
   (SecurityAlert
     | where TimeGenerated > ago(1h)
     | where ProviderName != "ASI Scheduled Alerts"
-    | where AlertName has_any ("ASCII smuggling", "ASCIISmuggling", "indirect prompt", "prompt injection")
-        or AlertType in~ (
-            "AI.Azure_ASCIISmuggling",
-            "AI.Azure_Agentic_ASCIISmuggling",
-            "AI.Azure_MaliciousUrl.ToolOutput",
-            "AI.Azure_Agentic_MaliciousUrl.ToolOutput"
-        ))
+    | where AlertType =~ "AI.Azure_ASCIISmuggling")
 | project TimeGenerated, AlertName, AlertType, AlertSeverity, CompromisedEntity, Description
 
-// Rule 3: System instruction leak / reconnaissance
+// Rule 3: LLM reconnaissance against an Azure AI model deployment
 let reconLookback = 1h;
 union isfuzzy=true
   (datatable(TimeGenerated:datetime, AlertName:string, AlertType:string, CompromisedEntity:string, Description:string)[]),
   (SecurityAlert
     | where TimeGenerated > ago(reconLookback)
     | where ProviderName != "ASI Scheduled Alerts"
-    | where AlertName has_any ("Instruction leak", "instruction leak", "InstructionLeakage", "LLM reconnaissance", "LLMReconnaissance", "reconnaissance probe")
-        or AlertType in~ (
-            "AI.Azure_InstructionLeakage",
-            "AI.Azure_Agentic_InstructionLeakage",
-            "AI.Azure_LLMReconaissance",
-            "AI.Azure_Agentic_LLMReconaissance"
-        ))
+    | where AlertType =~ "AI.Azure_LLMReconnaissance")
 | summarize AttemptCount=count(), make_set(AlertName), make_set(AlertType), arg_max(TimeGenerated, *) by CompromisedEntity
 | where AttemptCount >= 2
 | project TimeGenerated, CompromisedEntity, AlertName, AlertType, AttemptCount, Description
 
-// Rule 4: Credential theft / sensitive data leak
+// Rule 4: Credential theft in an Azure AI model response
 union isfuzzy=true
   (datatable(TimeGenerated:datetime, AlertName:string, AlertType:string, AlertSeverity:string, CompromisedEntity:string, Description:string)[]),
   (SecurityAlert
     | where TimeGenerated > ago(1h)
     | where ProviderName != "ASI Scheduled Alerts"
-    | where AlertName has_any ("credential theft", "CredentialTheftAttempt", "sensitive data", "SensitiveDataAnomaly")
-        or AlertType in~ (
-            "AI.Azure_CredentialTheftAttempt",
-            "AI.Azure_SensitiveDataAnomaly",
-            "AI.Azure_Agentic_SensitiveDataAnomaly"
-        ))
+    | where AlertType =~ "AI.Azure_CredentialTheftAttempt")
 | project TimeGenerated, AlertName, AlertType, AlertSeverity, CompromisedEntity, Description
 
-// Rule 5: Anomalous tool invocation / high-volume abuse
+// Rule 5: Documented Azure AI application/model activity anomalies
 union isfuzzy=true
   (datatable(TimeGenerated:datetime, AlertName:string, AlertType:string, AlertSeverity:string, CompromisedEntity:string, Description:string)[]),
   (SecurityAlert
     | where TimeGenerated > ago(1h)
     | where ProviderName != "ASI Scheduled Alerts"
-    | where AlertName has_any ("anomalous tool", "AnomalousToolInvocation", "suspicious user agent", "anonymized IP", "DOW volume")
-        or AlertType in~ (
+    | where AlertType in~ (
             "AI.Azure_AnomalousToolInvocation",
-            "AI.Azure_Agentic_DOWVolumeAnomaly",
+            "AI.Azure_DOWDuplicateRequests",
+            "AI.Azure_DOWVolumeAnomaly",
             "AI.Azure_AccessFromSuspiciousUserAgent",
-            "AI.Azure_AccessFromAnonymizedIP"
+            "AI.Azure_AccessFromAnonymizedIP",
+            "AI.Azure_AccessFromSuspiciousIP",
+            "AI.Azure_AccessAnomaly"
         ))
 | project TimeGenerated, AlertName, AlertType, AlertSeverity, CompromisedEntity, Description
 

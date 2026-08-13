@@ -2,7 +2,8 @@
 Attack harness for the Agent 365 Defender lab.
 
 Runs attack scenarios against a chat-completions agent loop backed by
-Azure OpenAI. Each attack produces one or more Defender for AI alerts.
+Azure OpenAI. Alert generation is nondeterministic; retained evidence proves
+only the documented Prompt Shields jailbreak alert described in the README.
 
 Usage:
     export AI_SERVICES_ENDPOINT="https://<ai-services>.cognitiveservices.azure.com"
@@ -16,7 +17,7 @@ Scenarios:
     credential-exfil   - tries to exfiltrate api_key via lookup_customer
     ascii-smuggling    - invisible unicode to smuggle instructions
     tool-abuse         - abuses send_email to exfiltrate data to attacker
-    wallet-attack      - 200-request storm to trigger volume anomaly
+    wallet-attack      - optional 200-request volume test (alert not guaranteed)
     all                - every scenario with 10s spacing
 """
 
@@ -268,7 +269,7 @@ def main() -> int:
         prompt = SCENARIOS[s]
         print(f"\n=== scenario: {s} ===")
         if s == "wallet-attack":
-            print("blasting 200 small requests to trigger volume anomaly...")
+            print("sending 200 small requests for an optional volume test; an alert is not guaranteed...")
             for i in range(200):
                 try:
                     run_prompt(

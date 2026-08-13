@@ -1,5 +1,9 @@
-// Agent 365 Defender Lab - Sentinel analytics rules + workbook
+// Agent 365-era lab - current Defender for AI Services model/application alerts.
 // Deploy against your Sentinel-onboarded Log Analytics workspace.
+//
+// These rules intentionally exclude the retired AI.Azure_Agentic_* contract.
+// Agent-level protection moved to Agent 365 observability and Defender XDR on
+// July 1, 2026; this template has no supported way to configure that service.
 
 targetScope = 'resourceGroup'
 
@@ -16,15 +20,15 @@ param deploymentId string
 
 var ownershipSuffix = '[Owner: ${ownerMarker}; Deployment: ${deploymentId}]'
 
-// ---- Rule 1: Agent jailbreak burst (detected or blocked) ----
+// ---- Rule 1: Azure AI model jailbreak burst (detected or blocked) ----
 
 resource ruleJailbreakBurst 'Microsoft.OperationalInsights/workspaces/providers/alertRules@2023-02-01-preview' = {
-  name: '${workspaceName}/Microsoft.SecurityInsights/agent365-jailbreak-burst'
+  name: '${workspaceName}/Microsoft.SecurityInsights/ai-model-jailbreak-burst'
   kind: 'Scheduled'
   properties: {
-    displayName: 'LAB - Agent Jailbreak Attempts (burst)'
-    description: 'Detects a burst of jailbreak attempts against a Foundry AI agent within 15 minutes. Correlates detected + blocked attempts. ${ownershipSuffix}'
-    severity: 'High'
+    displayName: 'LAB - Azure AI Model Jailbreak Attempts (burst)'
+    description: 'Correlates documented Defender for AI Services blocked and detected jailbreak alerts for an Azure AI model deployment. ${ownershipSuffix}'
+    severity: 'Medium'
     enabled: true
     query: '''
 let lookback = 15m;
@@ -33,13 +37,9 @@ union isfuzzy=true
   (SecurityAlert
     | where TimeGenerated > ago(lookback)
     | where ProviderName != "ASI Scheduled Alerts"
-    | where AlertName has_any ("Jailbreak", "jailbreak")
-        or AlertType in~ (
+    | where AlertType in~ (
             "AI.Azure_Jailbreak.ContentFiltering.BlockedAttempt",
-            "AI.Azure_Jailbreak.ContentFiltering.DetectedAttempt",
-            "AI.Azure_Agentic_Jailbreak",
-            "Azure_Agentic_BlockedJailbreak",
-            "AI.Azure_Agentic_BlockedJailbreak"
+            "AI.Azure_Jailbreak.ContentFiltering.DetectedAttempt"
         ))
 | summarize count(), make_set(AlertName), make_set(AlertType), arg_max(TimeGenerated, *) by CompromisedEntity
 | where count_ >= 2
@@ -55,7 +55,6 @@ union isfuzzy=true
     suppressionDuration: 'PT5H'
     suppressionEnabled: false
     tactics: ['DefenseEvasion', 'PrivilegeEscalation']
-    techniques: ['T1548']
     eventGroupingSettings: {
       aggregationKind: 'SingleAlert'
     }
@@ -73,14 +72,14 @@ union isfuzzy=true
   }
 }
 
-// ---- Rule 2: Indirect prompt injection / XPIA on agent ----
+// ---- Rule 2: ASCII smuggling against an Azure AI model deployment ----
 
-resource ruleXPIA 'Microsoft.OperationalInsights/workspaces/providers/alertRules@2023-02-01-preview' = {
-  name: '${workspaceName}/Microsoft.SecurityInsights/agent365-xpia-ascii-smuggling'
+resource ruleAsciiSmuggling 'Microsoft.OperationalInsights/workspaces/providers/alertRules@2023-02-01-preview' = {
+  name: '${workspaceName}/Microsoft.SecurityInsights/ai-model-ascii-smuggling'
   kind: 'Scheduled'
   properties: {
-    displayName: 'LAB - Indirect Prompt Injection (XPIA/ASCII Smuggling) on AI Agent'
-    description: 'Detects indirect prompt injection attempts targeting Foundry agents. Covers ASCII smuggling (invisible unicode) and malicious content embedded in RAG/tool data. ${ownershipSuffix}'
+    displayName: 'LAB - Azure AI Model ASCII Smuggling'
+    description: 'Matches the documented Defender for AI Services ASCII-smuggling alert for an Azure AI model deployment. ${ownershipSuffix}'
     severity: 'High'
     enabled: true
     query: '''
@@ -89,13 +88,7 @@ union isfuzzy=true
   (SecurityAlert
     | where TimeGenerated > ago(1h)
     | where ProviderName != "ASI Scheduled Alerts"
-    | where AlertName has_any ("ASCII smuggling", "ASCIISmuggling", "indirect prompt", "prompt injection")
-        or AlertType in~ (
-            "AI.Azure_ASCIISmuggling",
-            "AI.Azure_Agentic_ASCIISmuggling",
-            "AI.Azure_MaliciousUrl.ToolOutput",
-            "AI.Azure_Agentic_MaliciousUrl.ToolOutput"
-        ))
+    | where AlertType =~ "AI.Azure_ASCIISmuggling")
 | project TimeGenerated, AlertName, AlertType, AlertSeverity, CompromisedEntity, Description
 '''
     queryFrequency: 'PT10M'
@@ -105,7 +98,6 @@ union isfuzzy=true
     suppressionDuration: 'PT5H'
     suppressionEnabled: false
     tactics: ['Impact']
-    techniques: ['T1565']
     entityMappings: [
       {
         entityType: 'CloudApplication'
@@ -120,15 +112,15 @@ union isfuzzy=true
   }
 }
 
-// ---- Rule 3: Instruction prompt leak / reconnaissance ----
+// ---- Rule 3: LLM reconnaissance against an Azure AI model deployment ----
 
-resource ruleInstructionLeak 'Microsoft.OperationalInsights/workspaces/providers/alertRules@2023-02-01-preview' = {
-  name: '${workspaceName}/Microsoft.SecurityInsights/agent365-instruction-leak'
+resource ruleLlmReconnaissance 'Microsoft.OperationalInsights/workspaces/providers/alertRules@2023-02-01-preview' = {
+  name: '${workspaceName}/Microsoft.SecurityInsights/ai-model-llm-reconnaissance'
   kind: 'Scheduled'
   properties: {
-    displayName: 'LAB - AI Agent Instruction Leak / Reconnaissance'
-    description: 'Correlates system-prompt leakage attempts with reconnaissance probes - common precursors to jailbreak or prompt-injection campaigns. ${ownershipSuffix}'
-    severity: 'Medium'
+    displayName: 'LAB - Azure AI Model LLM Reconnaissance'
+    description: 'Correlates repeated documented Defender for AI Services LLM reconnaissance alerts for an Azure AI model deployment. ${ownershipSuffix}'
+    severity: 'Low'
     enabled: true
     query: '''
 let lookback = 1h;
@@ -137,13 +129,7 @@ union isfuzzy=true
   (SecurityAlert
     | where TimeGenerated > ago(lookback)
     | where ProviderName != "ASI Scheduled Alerts"
-    | where AlertName has_any ("Instruction leak", "instruction leak", "InstructionLeakage", "LLM reconnaissance", "LLMReconnaissance", "reconnaissance probe")
-        or AlertType in~ (
-            "AI.Azure_InstructionLeakage",
-            "AI.Azure_Agentic_InstructionLeakage",
-            "AI.Azure_LLMReconaissance",
-            "AI.Azure_Agentic_LLMReconaissance"
-        ))
+    | where AlertType =~ "AI.Azure_LLMReconnaissance")
 | summarize AttemptCount=count(), make_set(AlertName), make_set(AlertType), arg_max(TimeGenerated, *) by CompromisedEntity
 | where AttemptCount >= 2
 | project TimeGenerated, CompromisedEntity, AlertName, AlertType, AttemptCount, Description
@@ -155,7 +141,6 @@ union isfuzzy=true
     suppressionDuration: 'PT5H'
     suppressionEnabled: false
     tactics: ['Reconnaissance']
-    techniques: ['T1590']
     entityMappings: [
       {
         entityType: 'CloudApplication'
@@ -170,60 +155,14 @@ union isfuzzy=true
   }
 }
 
-// ---- Rule 4: Credential theft / sensitive data leak via agent ----
+// ---- Rule 4: Credential theft in an Azure AI model response ----
 
-resource ruleCredentialLeak 'Microsoft.OperationalInsights/workspaces/providers/alertRules@2023-02-01-preview' = {
-  name: '${workspaceName}/Microsoft.SecurityInsights/agent365-credential-data-leak'
+resource ruleCredentialTheft 'Microsoft.OperationalInsights/workspaces/providers/alertRules@2023-02-01-preview' = {
+  name: '${workspaceName}/Microsoft.SecurityInsights/ai-model-credential-theft'
   kind: 'Scheduled'
   properties: {
-    displayName: 'LAB - AI Agent Exposed Credentials or Sensitive Data'
-    description: 'Fires when Defender for AI detects credentials or sensitive data in agent responses - indicates model/tool compromise or prompt-injected exfiltration. ${ownershipSuffix}'
-    severity: 'High'
-    enabled: true
-    query: '''
-union isfuzzy=true
-  (datatable(TimeGenerated:datetime, AlertName:string, AlertType:string, AlertSeverity:string, CompromisedEntity:string, Description:string)[]),
-  (SecurityAlert
-    | where TimeGenerated > ago(1h)
-    | where ProviderName != "ASI Scheduled Alerts"
-    | where AlertName has_any ("credential theft", "CredentialTheftAttempt", "sensitive data", "SensitiveDataAnomaly")
-        or AlertType in~ (
-            "AI.Azure_CredentialTheftAttempt",
-            "AI.Azure_SensitiveDataAnomaly",
-            "AI.Azure_Agentic_SensitiveDataAnomaly"
-        ))
-| project TimeGenerated, AlertName, AlertType, AlertSeverity, CompromisedEntity, Description
-'''
-    queryFrequency: 'PT10M'
-    queryPeriod: 'PT1H'
-    triggerOperator: 'GreaterThan'
-    triggerThreshold: 0
-    suppressionDuration: 'PT5H'
-    suppressionEnabled: false
-    tactics: ['CredentialAccess', 'Exfiltration']
-    techniques: ['T1552', 'T1041']
-    entityMappings: [
-      {
-        entityType: 'CloudApplication'
-        fieldMappings: [
-          {
-            identifier: 'Name'
-            columnName: 'CompromisedEntity'
-          }
-        ]
-      }
-    ]
-  }
-}
-
-// ---- Rule 5: Anomalous tool invocation pattern ----
-
-resource ruleAnomalousTool 'Microsoft.OperationalInsights/workspaces/providers/alertRules@2023-02-01-preview' = {
-  name: '${workspaceName}/Microsoft.SecurityInsights/agent365-anomalous-tool-invocation'
-  kind: 'Scheduled'
-  properties: {
-    displayName: 'LAB - AI Agent Anomalous Tool Invocation or Volume Anomaly'
-    description: 'Detects tool abuse or wallet/DOW volume anomalies against a Foundry AI agent. May indicate prohibited-action exploitation or DDoS-style attack. ${ownershipSuffix}'
+    displayName: 'LAB - Azure AI Model Credential Theft'
+    description: 'Matches the documented Defender for AI Services credential-theft alert for credentials detected in an Azure AI model response. ${ownershipSuffix}'
     severity: 'Medium'
     enabled: true
     query: '''
@@ -232,12 +171,54 @@ union isfuzzy=true
   (SecurityAlert
     | where TimeGenerated > ago(1h)
     | where ProviderName != "ASI Scheduled Alerts"
-    | where AlertName has_any ("anomalous tool", "AnomalousToolInvocation", "suspicious user agent", "anonymized IP", "DOW volume")
-        or AlertType in~ (
+    | where AlertType =~ "AI.Azure_CredentialTheftAttempt")
+| project TimeGenerated, AlertName, AlertType, AlertSeverity, CompromisedEntity, Description
+'''
+    queryFrequency: 'PT10M'
+    queryPeriod: 'PT1H'
+    triggerOperator: 'GreaterThan'
+    triggerThreshold: 0
+    suppressionDuration: 'PT5H'
+    suppressionEnabled: false
+    tactics: ['CredentialAccess', 'LateralMovement', 'Exfiltration']
+    entityMappings: [
+      {
+        entityType: 'CloudApplication'
+        fieldMappings: [
+          {
+            identifier: 'Name'
+            columnName: 'CompromisedEntity'
+          }
+        ]
+      }
+    ]
+  }
+}
+
+// ---- Rule 5: Documented Azure AI application/model activity anomalies ----
+
+resource ruleAnomalousActivity 'Microsoft.OperationalInsights/workspaces/providers/alertRules@2023-02-01-preview' = {
+  name: '${workspaceName}/Microsoft.SecurityInsights/ai-model-anomalous-activity'
+  kind: 'Scheduled'
+  properties: {
+    displayName: 'LAB - Azure AI Model/Application Anomalous Activity'
+    description: 'Matches documented Defender for AI Services tool-invocation, wallet-abuse, and access-anomaly alerts for an Azure AI application or model deployment. ${ownershipSuffix}'
+    severity: 'Medium'
+    enabled: true
+    query: '''
+union isfuzzy=true
+  (datatable(TimeGenerated:datetime, AlertName:string, AlertType:string, AlertSeverity:string, CompromisedEntity:string, Description:string)[]),
+  (SecurityAlert
+    | where TimeGenerated > ago(1h)
+    | where ProviderName != "ASI Scheduled Alerts"
+    | where AlertType in~ (
             "AI.Azure_AnomalousToolInvocation",
-            "AI.Azure_Agentic_DOWVolumeAnomaly",
+            "AI.Azure_DOWDuplicateRequests",
+            "AI.Azure_DOWVolumeAnomaly",
             "AI.Azure_AccessFromSuspiciousUserAgent",
-            "AI.Azure_AccessFromAnonymizedIP"
+            "AI.Azure_AccessFromAnonymizedIP",
+            "AI.Azure_AccessFromSuspiciousIP",
+            "AI.Azure_AccessAnomaly"
         ))
 | project TimeGenerated, AlertName, AlertType, AlertSeverity, CompromisedEntity, Description
 '''
@@ -247,8 +228,7 @@ union isfuzzy=true
     triggerThreshold: 0
     suppressionDuration: 'PT5H'
     suppressionEnabled: false
-    tactics: ['Execution', 'Impact']
-    techniques: ['T1059']
+    tactics: ['Execution', 'Reconnaissance', 'InitialAccess', 'Impact']
     entityMappings: [
       {
         entityType: 'CloudApplication'

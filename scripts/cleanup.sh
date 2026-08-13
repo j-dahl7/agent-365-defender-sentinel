@@ -14,24 +14,24 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LAB_DIR="$(dirname "$SCRIPT_DIR")"
 STATE_FILE="${STATE_FILE:-$LAB_DIR/.agent365-lab-state.json}"
 PLAN_ONLY="${PLAN_ONLY:-false}"
-OWNER_MARKER='nine-lives-zero-trust:agent-365-defender-sentinel:v1'
+OWNER_MARKER='nine-lives-zero-trust:agent-365-defender-sentinel:v2'
 OWNER_TAG='nlzt-owner'
 DEPLOYMENT_TAG='nlzt-deployment'
 RULE_API_VERSION='2024-03-01'
 
 EXPECTED_RULE_IDS=(
-  agent365-jailbreak-burst
-  agent365-xpia-ascii-smuggling
-  agent365-instruction-leak
-  agent365-credential-data-leak
-  agent365-anomalous-tool-invocation
+  ai-model-jailbreak-burst
+  ai-model-ascii-smuggling
+  ai-model-llm-reconnaissance
+  ai-model-credential-theft
+  ai-model-anomalous-activity
 )
 EXPECTED_RULE_NAMES=(
-  'LAB - Agent Jailbreak Attempts (burst)'
-  'LAB - Indirect Prompt Injection (XPIA/ASCII Smuggling) on AI Agent'
-  'LAB - AI Agent Instruction Leak / Reconnaissance'
-  'LAB - AI Agent Exposed Credentials or Sensitive Data'
-  'LAB - AI Agent Anomalous Tool Invocation or Volume Anomaly'
+  'LAB - Azure AI Model Jailbreak Attempts (burst)'
+  'LAB - Azure AI Model ASCII Smuggling'
+  'LAB - Azure AI Model LLM Reconnaissance'
+  'LAB - Azure AI Model Credential Theft'
+  'LAB - Azure AI Model/Application Anomalous Activity'
 )
 
 fail() {
