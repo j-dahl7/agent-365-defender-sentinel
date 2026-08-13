@@ -37,6 +37,8 @@ Compromised entity:
 
 - The lab intentionally validates behavior even if Defender `SecurityAlert` records are delayed.
 - AI Services diagnostic logging is enabled for `Audit`, `RequestResponse`, `AzureOpenAIRequestUsage`, `Trace`, and `AllMetrics`.
-- Sentinel rules are deployed and validate against the existing workspace schema.
+- The April revision's Sentinel rules were deployed and validated against that workspace. This statement is historical and does not prove the August `v2` rule set was deployed.
 - An April 25 replay matched the same six attack outcomes and produced two fresh Prompt Shields `SecurityAlert` rows. Its `RequestResponse` rows used `OperationName=create_completions` and `ResultSignature=200` for all seven rows, so treat `ResultSignature` as request context rather than an authoritative content-filter signal.
-- Do not overclaim Agent 365 GA telemetry until the tenant has Agent 365 onboarded. This lab is the pre-GA Defender playbook and maps the attack patterns to the controls Microsoft says Agent 365 brings together.
+- The retained alerts were model-level Defender for AI Services Prompt Shields alerts, not Agent 365 observability evidence.
+- As of July 1, 2026, Foundry agent-level discovery, posture, and threat detection require an Agent 365-eligible license and onboarding. This lab's local chat-completions loop is not onboarded to Agent 365.
+- The August `v2` deployable rules exclude the retired `AI.Azure_Agentic_*` identifiers and use only current documented Defender for AI Services model/application alert IDs.
