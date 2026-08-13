@@ -44,6 +44,13 @@ class DefenderDetectionContractTests(unittest.TestCase):
         self.assertIn("output ruleCount int = 5", bicep)
         self.assertEqual(quoted_alert_ids(kql), quoted_alert_ids(bicep))
 
+    def test_compromised_resource_ids_use_the_sentinel_azure_resource_entity(self):
+        bicep = BICEP_PATH.read_text(encoding="utf-8")
+        self.assertEqual(bicep.count("entityType: 'AzureResource'"), 5)
+        self.assertEqual(bicep.count("identifier: 'ResourceId'"), 5)
+        self.assertEqual(bicep.count("columnName: 'CompromisedEntity'"), 5)
+        self.assertNotIn("entityType: 'CloudApplication'", bicep)
+
     def test_readme_separates_model_and_agent_365_coverage(self):
         readme = README_PATH.read_text(encoding="utf-8")
         self.assertIn("Foundry **agent-level** discovery", readme)
