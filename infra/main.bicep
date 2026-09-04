@@ -1,5 +1,5 @@
 // Agent 365-era Defender lab - Azure AI model endpoint with Foundry scaffolding.
-// Companion to blog: "AI Agents Are Running in Containers. Here's the Defender Playbook."
+// Companion: https://nineliveszerotrust.com/blog/agent-365-defender-playbook/
 //
 // Defender for AI Services plan is configured at subscription scope (see deploy-lab.sh).
 
@@ -14,7 +14,7 @@ param suffix string = uniqueString(resourceGroup().id)
 @description('Log Analytics workspace resource ID for Sentinel correlation.')
 param sentinelWorkspaceId string
 
-@description('Object ID of the lab operator - gets Foundry project Owner.')
+@description('Object ID of the lab operator - receives AzureML Data Scientist on the Foundry project, not Owner.')
 param operatorObjectId string
 
 var hubName = 'agent365hub${take(suffix, 6)}'

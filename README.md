@@ -50,6 +50,11 @@ for the separate licensed agent-level path.
 ## Prerequisites and Billing Guard
 
 - An Azure subscription and an existing Microsoft Sentinel-enabled Log Analytics workspace
+- A supported Defender alert ingestion path into that exact workspace. Before
+  evaluating these analytics rules, verify a representative Defender alert row
+  in its `SecurityAlert` table. This lab does not create a Defender data
+  connector or configure that ingestion path; a successful resource deployment
+  alone does not establish alert coverage.
 - Azure CLI, Bash, `jq`, and Python 3.10 or later
 - Permission to deploy resources and Sentinel analytics rules
 - Regional quota and availability for the bundled `gpt-4.1-mini` deployment

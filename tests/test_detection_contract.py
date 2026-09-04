@@ -51,6 +51,17 @@ class DefenderDetectionContractTests(unittest.TestCase):
         self.assertEqual(bicep.count("columnName: 'CompromisedEntity'"), 5)
         self.assertNotIn("entityType: 'CloudApplication'", bicep)
 
+    def test_standalone_rule_bodies_match_every_deployed_query(self):
+        kql = KQL_PATH.read_text(encoding="utf-8")
+        bicep = BICEP_PATH.read_text(encoding="utf-8")
+        standalone = re.findall(r"// Rule \d+:[^\n]*\n(.*?)(?=\n// (?:Rule|Hunting):?|\Z)", kql, re.S)
+        deployed = re.findall(r"query:\s*'''(.*?)'''", bicep, re.S)
+        self.assertEqual(len(standalone), 5)
+        self.assertEqual(len(deployed), 5)
+        for number, (left, right) in enumerate(zip(standalone, deployed), 1):
+            with self.subTest(rule=number):
+                self.assertEqual(" ".join(left.split()), " ".join(right.split()))
+
     def test_readme_separates_model_and_agent_365_coverage(self):
         readme = README_PATH.read_text(encoding="utf-8")
         self.assertIn("Foundry **agent-level** discovery", readme)
