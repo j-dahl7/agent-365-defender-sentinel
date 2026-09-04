@@ -33,8 +33,10 @@ jobs:
       - name: Parse Bash entry points
         run: bash -n scripts/deploy-lab.sh scripts/cleanup.sh
 
-      - name: Compile Sentinel Bicep
-        run: az bicep build --file infra/sentinel-rules.bicep --stdout >/dev/null
+      - name: Compile resource and Sentinel Bicep
+        run: |
+          az bicep build --file infra/main.bicep --stdout >/dev/null
+          az bicep build --file infra/sentinel-rules.bicep --stdout >/dev/null
 
       - name: Run offline safety tests
         run: python -m unittest discover -s tests -v

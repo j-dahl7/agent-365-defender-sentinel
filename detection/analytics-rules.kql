@@ -15,8 +15,9 @@ union isfuzzy=true
             "AI.Azure_Jailbreak.ContentFiltering.BlockedAttempt",
             "AI.Azure_Jailbreak.ContentFiltering.DetectedAttempt"
         ))
-| summarize AttemptCount=count(), AlertNames=make_set(AlertName), AlertTypes=make_set(AlertType), arg_max(TimeGenerated, *) by CompromisedEntity
-| where AttemptCount >= 2
+| summarize count(), make_set(AlertName), make_set(AlertType), arg_max(TimeGenerated, *) by CompromisedEntity
+| where count_ >= 2
+| project TimeGenerated, CompromisedEntity, AlertName, AlertType, AlertSeverity, AttemptCount=count_
 
 // Rule 2: ASCII smuggling against an Azure AI model deployment
 union isfuzzy=true
@@ -28,11 +29,11 @@ union isfuzzy=true
 | project TimeGenerated, AlertName, AlertType, AlertSeverity, CompromisedEntity, Description
 
 // Rule 3: LLM reconnaissance against an Azure AI model deployment
-let reconLookback = 1h;
+let lookback = 1h;
 union isfuzzy=true
   (datatable(TimeGenerated:datetime, AlertName:string, AlertType:string, CompromisedEntity:string, Description:string)[]),
   (SecurityAlert
-    | where TimeGenerated > ago(reconLookback)
+    | where TimeGenerated > ago(lookback)
     | where ProviderName != "ASI Scheduled Alerts"
     | where AlertType =~ "AI.Azure_LLMReconnaissance")
 | summarize AttemptCount=count(), make_set(AlertName), make_set(AlertType), arg_max(TimeGenerated, *) by CompromisedEntity
