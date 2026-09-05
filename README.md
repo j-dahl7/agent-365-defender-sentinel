@@ -224,7 +224,11 @@ PLAN_ONLY=true ./scripts/cleanup.sh
 ./scripts/cleanup.sh
 ```
 
-Cleanup requires the deployment-generated `.agent365-lab-state.json`, verifies the active tenant/subscription, the exact resource-group ID and tags, and every present rule's ID, display name, and deployment marker before the first delete. It fails closed on any mismatch or Azure error, retains the state file for asynchronous deletion verification and safe retry, does not delete the shared Sentinel workspace, and does not disable the subscription-level Defender for AI Services plan. Optional Key Vault purge is permitted only after the resource group is absent and requires `PURGE_KEYVAULT_NAME` plus an exact matching `CONFIRM_KEYVAULT_PURGE`.
+Cleanup requires the deployment-generated `.agent365-lab-state.json`, verifies the active tenant/subscription, the exact resource-group ID and tags, and every present rule's ID, display name, and deployment marker before the first delete. It fails closed on any mismatch or Azure error, retains the state file for asynchronous deletion verification and safe retry, does not delete the shared Sentinel workspace, and does not disable the subscription-level Defender for AI Services plan.
+
+Cleanup never purges a Key Vault. The legacy `PURGE_KEYVAULT_NAME` and `CONFIRM_KEYVAULT_PURGE` environment controls are rejected before any Azure calls, including when the resource group is absent. Unset them before running cleanup. Soft-deleted vaults retain their configured recovery window and can temporarily reserve their names. Any irreversible purge is a separate manual Azure-owner operation requiring independent verification of the exact deleted vault and its retention/purge-protection policy; this helper provides no purge shortcut.
+
+The attack client requires the deployment manifest and validates its AI account resource ID, name, and exact HTTPS endpoint before constructing a credential or client. Only the deployed public-Azure account origin is supported; arbitrary gateways, credential-bearing URLs, alternate paths, and different account origins are rejected. If deployment used a custom manifest path, export the same `STATE_FILE` before running the client. Existing manifests without AI account identity must be refreshed by rerunning the ownership-verified deploy helper. Keep this local provenance file private and trusted; it is not a signature or protection against a local user who can modify the manifest.
 
 ## Blog Thesis
 

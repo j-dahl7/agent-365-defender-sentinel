@@ -37,8 +37,9 @@ from openai import AzureOpenAI, BadRequestError
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "agent"))
 from tools import TOOL_REGISTRY  # noqa: E402
+from endpoint_ownership import validate_owned_endpoint  # noqa: E402
 
-AI_SERVICES_ENDPOINT = os.environ["AI_SERVICES_ENDPOINT"].rstrip("/")
+AI_SERVICES_ENDPOINT = os.environ["AI_SERVICES_ENDPOINT"]
 MODEL_DEPLOYMENT = os.environ.get("MODEL_DEPLOYMENT", "gpt-4-1-mini")
 AGENT_FILE = Path(__file__).resolve().parent.parent / "agent" / "agent.json"
 EVIDENCE_DIR = Path(__file__).resolve().parent.parent / "evidence"
@@ -175,12 +176,16 @@ def _write_tool_evidence(scenario: str, tool_name: str, args: dict[str, Any], re
 
 
 def _build_client() -> AzureOpenAI:
+    state_path = Path(os.environ.get('STATE_FILE', str(AGENT_FILE.parent.parent / '.agent365-lab-state.json')))
+    endpoint = validate_owned_endpoint(
+        AI_SERVICES_ENDPOINT, json.loads(state_path.read_text(encoding='utf-8'))
+    )
     token_provider = get_bearer_token_provider(
         DefaultAzureCredential(), "https://cognitiveservices.azure.com/.default"
     )
     return AzureOpenAI(
         api_version="2024-10-01-preview",
-        azure_endpoint=AI_SERVICES_ENDPOINT,
+        azure_endpoint=endpoint,
         azure_ad_token_provider=token_provider,
     )
 

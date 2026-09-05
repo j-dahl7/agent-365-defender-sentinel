@@ -250,5 +250,6 @@ output projectName string = project.name
 output projectEndpoint string = 'https://${aiServices.name}.services.ai.azure.com/api/projects/${project.name}'
 output aiServicesEndpoint string = aiServices.properties.endpoint
 output aiServicesName string = aiServices.name
+output aiServicesId string = aiServices.id
 output openAIDeploymentName string = modelDeployment.name
 output acrLoginServer string = acr.properties.loginServer

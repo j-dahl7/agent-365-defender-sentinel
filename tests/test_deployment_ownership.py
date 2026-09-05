@@ -197,7 +197,9 @@ elif args[:3] == ["deployment", "group", "create"]:
         save()
     else:
         print(json.dumps({
-            "aiServicesEndpoint": {"value": "https://mock.services.ai.azure.com"},
+            "aiServicesEndpoint": {"value": "https://agent365ais123456.cognitiveservices.azure.com"},
+            "aiServicesName": {"value": "agent365ais123456"},
+            "aiServicesId": {"value": resource_group_id + "/providers/Microsoft.CognitiveServices/accounts/agent365ais123456"},
             "openAIDeploymentName": {"value": "mock-model"},
         }))
 elif args and args[0] == "rest":
@@ -250,6 +252,9 @@ else:
                   printf '#!/usr/bin/env bash\nexit 0\n' > "$target/bin/python"
                   chmod 700 "$target/bin/pip" "$target/bin/python"
                   exit 0
+                fi
+                if [[ "${1:-}" == */agent/endpoint_ownership.py ]]; then
+                  exec /usr/bin/python3 "$@"
                 fi
                 exit 91
                 '''
@@ -327,12 +332,28 @@ else:
         self.assertEqual(manifest["resource_group_id"].lower(), RESOURCE_GROUP_ID.lower())
         self.assertEqual(stat.S_IMODE(self.manifest_path.stat().st_mode), 0o600)
         self.assertEqual(len(self._read_azure_state()["rules"]), 5)
+        self.assertEqual(manifest["ai_services_name"], "agent365ais123456")
+        self.assertTrue(manifest["ai_services_id"].startswith(RESOURCE_GROUP_ID))
 
         rerun = self._run(DEPLOY_SCRIPT)
         self.assertEqual(rerun.returncode, 0, rerun.stderr or rerun.stdout)
         self.assertIn("Verified owned rerun", rerun.stdout)
         group_creates = [call for call in self._calls() if call.startswith("group create ")]
         self.assertEqual(len(group_creates), 1)
+
+    def test_legacy_purge_flags_refuse_owned_and_absent_groups_without_mutations(self):
+        deployed = self._run(DEPLOY_SCRIPT)
+        self.assertEqual(deployed.returncode, 0, deployed.stderr or deployed.stdout)
+        for exists in [True, False]:
+            azure_state = self._read_azure_state()
+            azure_state["rg_exists"] = exists
+            self.state_path.write_text(json.dumps(azure_state), encoding="utf-8")
+            start = len(self._calls())
+            result = self._run(CLEANUP_SCRIPT, PURGE_KEYVAULT_NAME="foreign-vault", CONFIRM_KEYVAULT_PURGE="foreign-vault")
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("Automated Key Vault purge is no longer supported", result.stderr)
+            self.assertEqual(self._calls()[start:], [])
+            self.assertTrue(self.manifest_path.exists())
 
     def test_cleanup_preflights_every_rule_and_recovers_from_partial_failure(self):
         deployed = self._run(DEPLOY_SCRIPT)
