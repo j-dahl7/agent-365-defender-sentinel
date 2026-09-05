@@ -39,6 +39,11 @@ fail() {
   exit 2
 }
 
+# Legacy controls must fail before any Azure reads or deletion preflight.
+if [ "${PURGE_KEYVAULT_NAME+x}" = x ] || [ "${CONFIRM_KEYVAULT_PURGE+x}" = x ]; then
+  fail 'Automated Key Vault purge is no longer supported. Unset PURGE_KEYVAULT_NAME and CONFIRM_KEYVAULT_PURGE before cleanup; soft-delete retention is preserved.'
+fi
+
 normalize_id() {
   printf '%s' "${1%/}" | tr '[:upper:]' '[:lower:]'
 }
@@ -102,13 +107,6 @@ if [ "$RG_EXISTS" = 'true' ]; then
   [ "$(normalize_id "$ACTUAL_RG_ID")" = "$(normalize_id "$RESOURCE_GROUP_ID")" ] || fail 'Live resource-group ID does not match the deployment manifest.'
   [ "$ACTUAL_OWNER" = "$OWNER_MARKER" ] || fail 'Live resource group is missing the exact lab ownership tag.'
   [ "$ACTUAL_DEPLOYMENT" = "$DEPLOYMENT_ID" ] || fail 'Live resource group is missing the exact deployment provenance tag.'
-fi
-
-if [ -n "${PURGE_KEYVAULT_NAME:-}" ] && [ "$RG_EXISTS" = 'true' ]; then
-  fail 'Key Vault purge is only allowed after the owned resource group is confirmed absent. Run cleanup without PURGE_KEYVAULT_NAME, wait for deletion, then rerun with the exact purge confirmation.'
-fi
-if [ -n "${PURGE_KEYVAULT_NAME:-}" ] && [ "${CONFIRM_KEYVAULT_PURGE:-}" != "$PURGE_KEYVAULT_NAME" ]; then
-  fail 'CONFIRM_KEYVAULT_PURGE must exactly equal PURGE_KEYVAULT_NAME.'
 fi
 
 echo 'Preflighting all exact Sentinel rule IDs before deletion...'
@@ -198,11 +196,6 @@ if [ "$RG_EXISTS" = 'true' ]; then
     --yes --no-wait
 else
   echo "Owned resource group is already absent: $RESOURCE_GROUP_ID"
-fi
-
-if [ -n "${PURGE_KEYVAULT_NAME:-}" ]; then
-  echo "Purging explicitly confirmed soft-deleted Key Vault: $PURGE_KEYVAULT_NAME"
-  az keyvault purge --name "$PURGE_KEYVAULT_NAME" --subscription "$SUBSCRIPTION_ID" --only-show-errors
 fi
 
 cat <<SUMMARY

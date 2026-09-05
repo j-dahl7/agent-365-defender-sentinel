@@ -292,6 +292,9 @@ DEPLOY_OUT="$(az deployment group create \
 
 AI_SERVICES_ENDPOINT="$(jq -er '.aiServicesEndpoint.value | strings | select(length > 0)' <<< "$DEPLOY_OUT")"
 MODEL_DEPLOYMENT="$(jq -er '.openAIDeploymentName.value | strings | select(length > 0)' <<< "$DEPLOY_OUT")"
+AI_SERVICES_ID="$(jq -er '.aiServicesId.value | strings | select(length > 0)' <<< "$DEPLOY_OUT")"
+AI_SERVICES_NAME="$(jq -er '.aiServicesName.value | strings | select(length > 0)' <<< "$DEPLOY_OUT")"
+python3 "$LAB_DIR/agent/endpoint_ownership.py" "$STATE_FILE" "$AI_SERVICES_ENDPOINT" "$AI_SERVICES_ID" "$AI_SERVICES_NAME"
 echo "  AI_SERVICES_ENDPOINT=$AI_SERVICES_ENDPOINT"
 echo "  MODEL_DEPLOYMENT=$MODEL_DEPLOYMENT"
 
@@ -328,6 +331,7 @@ cat <<SUMMARY
 
     export AI_SERVICES_ENDPOINT="$AI_SERVICES_ENDPOINT"
     export MODEL_DEPLOYMENT="$MODEL_DEPLOYMENT"
+    export STATE_FILE="$STATE_FILE"
 
     # Run a single attack:
     $VENV/bin/python $LAB_DIR/attacks/run_attack.py jailbreak
