@@ -163,7 +163,8 @@ for index in "${!EXPECTED_RULE_IDS[@]}"; do
 done
 
 DELETE_MODEL=false
-if [ "$RG_EXISTS" = 'true' ] && jq -e '.ai_model_deployment_name and .ai_services_name and .ai_services_id' "$STATE_FILE" >/dev/null; then
+if [ "$RG_EXISTS" = 'true' ]; then
+  jq -e '[.ai_model_deployment_name, .ai_services_name, .ai_services_id] | all(type == "string" and length > 0)' "$STATE_FILE" >/dev/null || fail 'Legacy or partial model ownership metadata: no resources were deleted. While the owned resource group exists, review its exact AI account and model deployment manually and restore verified ownership fields before retrying. Do not guess or adopt model names.'
   AI_NAME="$(jq -er '.ai_services_name' "$STATE_FILE")"
   AI_ID="$(jq -er '.ai_services_id' "$STATE_FILE")"
   MODEL_NAME_TO_DELETE="$(jq -er '.ai_model_deployment_name' "$STATE_FILE")"

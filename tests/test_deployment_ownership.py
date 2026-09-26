@@ -328,6 +328,25 @@ else:
         group_delete = next(i for i, call in enumerate(calls) if 'group delete' in call)
         self.assertLess(model_delete, group_delete)
 
+    def test_legacy_model_metadata_blocks_all_deletes_until_group_is_absent(self):
+        deployed = self._run(DEPLOY_SCRIPT)
+        self.assertEqual(deployed.returncode, 0, deployed.stderr)
+        manifest = json.loads(self.manifest_path.read_text(encoding='utf-8'))
+        del manifest['ai_model_deployment_name']
+        self.manifest_path.write_text(json.dumps(manifest), encoding='utf-8')
+        self.log_path.write_text('')
+        cleanup = self._run(CLEANUP_SCRIPT)
+        self.assertNotEqual(cleanup.returncode, 0)
+        self.assertIn('Legacy or partial model ownership metadata', cleanup.stderr)
+        self.assertEqual(self._mutations(self._calls()), [])
+        state = self._read_azure_state()
+        state['rg_exists'] = False
+        self.state_path.write_text(json.dumps(state), encoding='utf-8')
+        self.log_path.write_text('')
+        cleanup = self._run(CLEANUP_SCRIPT)
+        self.assertEqual(cleanup.returncode, 0, cleanup.stderr)
+        self.assertFalse(any('group delete' in call for call in self._calls()))
+
     def test_plan_and_collisions_fail_before_any_mutation(self):
         plan = self._run(DEPLOY_SCRIPT, PLAN_ONLY="true", MOCK_TIER="Free")
         self.assertEqual(plan.returncode, 0, plan.stderr or plan.stdout)
