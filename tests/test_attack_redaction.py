@@ -113,20 +113,33 @@ class AttackRedactionTests(unittest.TestCase):
         self.assertIn("safe_result = _redact_value(result)", source)
         self.assertNotIn("json.dumps(result)[:180]", source)
 
+    def test_tool_failure_becomes_redacted_evidence_and_the_run_continues(self):
+        from unittest.mock import Mock
+        tool = types.SimpleNamespace(id='call-fixture', function=types.SimpleNamespace(name='search_docs', arguments='{}'))
+        first = types.SimpleNamespace(choices=[types.SimpleNamespace(message=types.SimpleNamespace(content=None, tool_calls=[tool]))])
+        final = types.SimpleNamespace(choices=[types.SimpleNamespace(message=types.SimpleNamespace(content='complete', tool_calls=None))])
+        client = types.SimpleNamespace(chat=types.SimpleNamespace(completions=types.SimpleNamespace(create=Mock(side_effect=[first, final]))))
+        def broken():
+            raise NotImplementedError('private exception text must not be logged')
+        with tempfile.TemporaryDirectory() as directory, patch.object(self.attack, 'EVIDENCE_DIR', Path(directory)), patch.object(self.attack, 'TOOL_REGISTRY', {'search_docs': broken}), patch('sys.stdout', io.StringIO()):
+            result = self.attack.run_prompt(client, {'system_instructions': 'fixture', 'model_deployment': 'fixture', 'tools': []}, 'fixture')
+            self.assertEqual(result, 'complete')
+            evidence = (Path(directory) / 'tool-calls.jsonl').read_text()
+            self.assertIn('error', evidence)
+            self.assertNotIn('private exception text', evidence)
+
     def test_runtime_dependencies_are_bounded_hash_locked_and_used_by_deployment(self):
-        requirements = (LAB_ROOT / "requirements.txt").read_text(encoding="utf-8").splitlines()
-        lock = (LAB_ROOT / "requirements.lock").read_text(encoding="utf-8")
+        requirements = (LAB_ROOT / "requirements.in").read_text(encoding="utf-8").splitlines()
+        lock = (LAB_ROOT / "requirements.txt").read_text(encoding="utf-8")
         deploy_source = (LAB_ROOT / "scripts" / "deploy-lab.sh").read_text(encoding="utf-8")
         readme = (LAB_ROOT / "README.md").read_text(encoding="utf-8")
 
-        self.assertEqual(
-            requirements,
-            ["azure-identity>=1.25.3,<2.0.0", "openai>=2.50.0,<3.0.0"],
-        )
-        self.assertIn('--require-hashes -r "$LAB_DIR/requirements.lock"', deploy_source)
-        self.assertNotIn('"azure-identity>=', deploy_source)
-        self.assertIn("azure-identity==1.25.3", lock)
-        self.assertIn("openai==2.53.0", lock)
+        self.assertEqual(len(requirements), 2)
+        for requirement in requirements:
+            self.assertRegex(requirement, r"^[a-z-]+>=[0-9.]+,<[0-9.]+$")
+            package = requirement.split('>=')[0]
+            self.assertRegex(lock, rf"(?m)^{package}==[0-9.]+ \\")
+        self.assertIn('--require-hashes -r "$LAB_DIR/requirements.txt"', deploy_source)
         self.assertGreaterEqual(lock.count("--hash=sha256:"), 20)
         self.assertIn("subscription-level Defender for AI Services Standard", readme)
         self.assertIn("can affect billing", readme)
@@ -149,6 +162,14 @@ if [ \"${1:-} ${2:-} ${3:-}\" = \"security pricing show\" ]; then
   printf '%s\\n' \"$MOCK_TIER\"
   exit 0
 fi
+if [ \"${1:-} ${2:-} ${3:-}\" = \"ad signed-in-user show\" ]; then
+  printf '%s\\n' '44444444-4444-4444-8444-444444444444'
+  exit 0
+fi
+if [ \"${1:-} ${2:-} ${3:-}\" = \"cognitiveservices model list\" ]; then
+  printf '%s\\n' '[{\"model\":{\"format\":\"OpenAI\",\"name\":\"fixture-chat\",\"version\":\"2026-01-01\",\"lifecycleStatus\":\"GenerallyAvailable\",\"capabilities\":{\"chatCompletion\":\"true\"},\"skus\":[{\"name\":\"Standard\",\"capacity\":{\"minimum\":1,\"maximum\":50,\"step\":1}}]}}]'
+  exit 0
+fi
 if [ \"${1:-} ${2:-}\" = \"group exists\" ]; then
   printf '%s\\n' 'false'
   exit 0
@@ -166,11 +187,19 @@ exit 99
             )
             fake_az.chmod(0o700)
 
+            venv = temp_path / 'venv'
+            (venv / 'bin').mkdir(parents=True)
+            pip = venv / 'bin' / 'pip'
+            pip.write_text('#!/usr/bin/env bash\nexit 0\n')
+            pip.chmod(0o700)
             base_env = os.environ.copy()
             base_env.update(
                 {
                     "AZ_CALL_LOG": str(call_log),
                     "MOCK_TIER": "Free",
+                    "MODEL_NAME": "fixture-chat",
+                    "MODEL_VERSION": "2026-01-01",
+                    "VENV": str(venv),
                     "PATH": str(temp_path) + os.pathsep + base_env["PATH"],
                     "SENTINEL_WS_ID": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/sentinel-rg/providers/Microsoft.OperationalInsights/workspaces/sentinel-law",
                     "STATE_FILE": str(temp_path / "deployment-state.json"),

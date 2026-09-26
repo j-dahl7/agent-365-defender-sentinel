@@ -133,6 +133,14 @@ fetch_all_rules() {
   jq -cn --argjson value "$all_values" '{value: $value}'
 }
 
+DEFENDER_ENABLED_BY_LAB="$(jq -r '.defender_ai_enabled_by_lab // false' "$STATE_FILE")"
+case "$DEFENDER_ENABLED_BY_LAB" in true|false) ;; *) fail 'Invalid recorded Defender billing metadata.' ;; esac
+if [ "$DEFENDER_ENABLED_BY_LAB" = 'true' ]; then
+  PRIOR_TIER="$(jq -er '.defender_ai_prior_tier | strings | select(. == "Free" or . == "Standard")' "$STATE_FILE")"
+  echo "This lab enabled subscription-wide Defender for AI Services; prior tier: $PRIOR_TIER."
+  echo "Cleanup will not overwrite shared pricing. Review the current state and other workloads before any manual restoration."
+fi
+
 RULES_JSON="$(fetch_all_rules)"
 
 OWNED_RULE_IDS=()
@@ -154,6 +162,22 @@ for index in "${!EXPECTED_RULE_IDS[@]}"; do
   OWNED_RULE_IDS+=("$rule_id")
 done
 
+DELETE_MODEL=false
+if [ "$RG_EXISTS" = 'true' ]; then
+  jq -e '[.ai_model_deployment_name, .ai_services_name, .ai_services_id] | all(type == "string" and length > 0)' "$STATE_FILE" >/dev/null || fail 'Legacy or partial model ownership metadata: no resources were deleted. While the owned resource group exists, review its exact AI account and model deployment manually and restore verified ownership fields before retrying. Do not guess or adopt model names.'
+  AI_NAME="$(jq -er '.ai_services_name' "$STATE_FILE")"
+  AI_ID="$(jq -er '.ai_services_id' "$STATE_FILE")"
+  MODEL_NAME_TO_DELETE="$(jq -er '.ai_model_deployment_name' "$STATE_FILE")"
+  [[ "$AI_NAME" =~ ^agent365ais[a-z0-9]{6}$ ]] || fail 'Invalid AI account ownership name.'
+  [[ "$MODEL_NAME_TO_DELETE" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$ ]] || fail 'Invalid model deployment ownership name.'
+  [ "$(normalize_id "$AI_ID")" = "$(normalize_id "$RESOURCE_GROUP_ID/providers/Microsoft.CognitiveServices/accounts/$AI_NAME")" ] || fail 'AI account is outside the owned group.'
+  DEPLOYMENTS="$(az cognitiveservices account deployment list --resource-group "$RESOURCE_GROUP" --name "$AI_NAME" --subscription "$SUBSCRIPTION_ID" --output json)"
+  jq -e 'type == "array"' <<< "$DEPLOYMENTS" >/dev/null || fail 'Invalid model deployment inventory.'
+  MODEL_COUNT="$(jq --arg name "$MODEL_NAME_TO_DELETE" '[.[] | select(.name == $name)] | length' <<< "$DEPLOYMENTS")"
+  [ "$MODEL_COUNT" -le 1 ] || fail 'Ambiguous model deployment inventory.'
+  if [ "$MODEL_COUNT" -eq 1 ]; then DELETE_MODEL=true; fi
+fi
+
 if [ "$PLAN_ONLY" = 'true' ]; then
   cat <<PLAN
 
@@ -166,12 +190,14 @@ PLAN
   exit 0
 fi
 
+if [ "${#OWNED_RULE_IDS[@]}" -gt 0 ]; then
 for rule_id in "${OWNED_RULE_IDS[@]}"; do
   echo "Deleting owned analytics rule: $rule_id"
   az rest --method DELETE \
     --url "$SENTINEL_WS_ID/providers/Microsoft.SecurityInsights/alertRules/$rule_id?api-version=$RULE_API_VERSION" \
     --output none
 done
+fi
 
 if [ "${#OWNED_RULE_IDS[@]}" -gt 0 ]; then
   for attempt in 1 2 3 4 5; do
@@ -186,6 +212,10 @@ if [ "${#OWNED_RULE_IDS[@]}" -gt 0 ]; then
     [ "$attempt" -lt 5 ] && sleep 2
   done
   [ "$remaining" -eq 0 ] || fail 'One or more Sentinel rules still exist after delete requests; resource-group deletion was not started.'
+fi
+
+if [ "$DELETE_MODEL" = 'true' ]; then
+  az cognitiveservices account deployment delete --resource-group "$RESOURCE_GROUP" --name "$AI_NAME" --deployment-name "$MODEL_NAME_TO_DELETE" --subscription "$SUBSCRIPTION_ID" --only-show-errors
 fi
 
 if [ "$RG_EXISTS" = 'true' ]; then

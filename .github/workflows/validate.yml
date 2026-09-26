@@ -25,13 +25,13 @@ jobs:
         with:
           python-version: '3.12'
           cache: pip
-          cache-dependency-path: requirements.lock
+          cache-dependency-path: requirements.txt
 
       - name: Enforce hash-locked runtime dependencies
-        run: python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
+        run: python -m pip install --disable-pip-version-check --require-hashes -r requirements.txt
 
       - name: Parse Bash entry points
-        run: bash -n scripts/deploy-lab.sh scripts/cleanup.sh
+        run: for file in scripts/*.sh; do bash -n "$file" || exit 1; done
 
       - name: Compile resource and Sentinel Bicep
         run: |
@@ -40,3 +40,14 @@ jobs:
 
       - name: Run offline safety tests
         run: python -m unittest discover -s tests -v
+
+      - name: Analyze deployed KQL against documented alert columns
+        shell: pwsh
+        run: |
+          $directory = Join-Path $env:RUNNER_TEMP 'kusto-language-12.4.1'
+          New-Item -ItemType Directory -Path $directory -Force | Out-Null
+          $archive = Join-Path $directory 'kusto.zip'
+          Invoke-WebRequest -Uri 'https://api.nuget.org/v3-flatcontainer/microsoft.azure.kusto.language/12.4.1/microsoft.azure.kusto.language.12.4.1.nupkg' -OutFile $archive
+          if ((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash -ne '154C176AC9C1C4AE9CF0BC53B74354C9D35798FF587F81FE6E0005028A0A1961') { throw 'Kusto language package checksum mismatch' }
+          Expand-Archive -LiteralPath $archive -DestinationPath (Join-Path $directory 'package')
+          ./scripts/Test-QuerySyntax.ps1 -KustoAssembly (Join-Path $directory 'package/lib/net6.0/Kusto.Language.dll')

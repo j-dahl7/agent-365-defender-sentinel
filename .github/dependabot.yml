@@ -8,6 +8,7 @@ version: 2
 updates:
   - package-ecosystem: "pip"
     directory: "/"
+    # pip-compile pair: requirements.in -> hashed requirements.txt
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5

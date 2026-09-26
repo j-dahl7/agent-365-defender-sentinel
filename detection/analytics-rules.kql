@@ -7,54 +7,70 @@
 // Rule 1: Azure AI model jailbreak attempts (burst)
 let lookback = 15m;
 union isfuzzy=true
-  (datatable(TimeGenerated:datetime, AlertName:string, AlertType:string, AlertSeverity:string, CompromisedEntity:string)[]),
+  (datatable(TimeGenerated:datetime, SystemAlertId:string, IngestedAt:datetime, AlertName:string, AlertType:string, AlertSeverity:string, CompromisedEntity:string)[]),
   (SecurityAlert
     | where TimeGenerated > ago(lookback)
     | where ProviderName != "ASI Scheduled Alerts"
+    | where isnotempty(SystemAlertId)
+    | extend IngestedAt = coalesce(ingestion_time(), TimeGenerated)
     | where AlertType in~ (
             "AI.Azure_Jailbreak.ContentFiltering.BlockedAttempt",
             "AI.Azure_Jailbreak.ContentFiltering.DetectedAttempt"
         ))
-| summarize count(), make_set(AlertName), make_set(AlertType), arg_max(TimeGenerated, *) by CompromisedEntity
-| where count_ >= 2
-| project TimeGenerated, CompromisedEntity, AlertName, AlertType, AlertSeverity, AttemptCount=count_
+| summarize FirstIngested=min(IngestedAt), arg_max(TimeGenerated, *) by SystemAlertId
+| summarize AttemptCount=count(), LastIngested=max(FirstIngested), make_set(AlertName), make_set(AlertType), arg_max(TimeGenerated, *) by CompromisedEntity
+| where AttemptCount >= 2 and LastIngested > ago(5m)
+| project TimeGenerated, CompromisedEntity, AlertName, AlertType, AlertSeverity, AttemptCount
 
 // Rule 2: ASCII smuggling against an Azure AI model deployment
 union isfuzzy=true
-  (datatable(TimeGenerated:datetime, AlertName:string, AlertType:string, AlertSeverity:string, CompromisedEntity:string, Description:string)[]),
+  (datatable(TimeGenerated:datetime, SystemAlertId:string, IngestedAt:datetime, AlertName:string, AlertType:string, AlertSeverity:string, CompromisedEntity:string, Description:string)[]),
   (SecurityAlert
     | where TimeGenerated > ago(1h)
     | where ProviderName != "ASI Scheduled Alerts"
+    | where isnotempty(SystemAlertId)
+    | extend IngestedAt = coalesce(ingestion_time(), TimeGenerated)
     | where AlertType =~ "AI.Azure_ASCIISmuggling")
+| summarize FirstIngested=min(IngestedAt), arg_max(TimeGenerated, *) by SystemAlertId
+| where FirstIngested > ago(10m)
 | project TimeGenerated, AlertName, AlertType, AlertSeverity, CompromisedEntity, Description
 
 // Rule 3: LLM reconnaissance against an Azure AI model deployment
 let lookback = 1h;
 union isfuzzy=true
-  (datatable(TimeGenerated:datetime, AlertName:string, AlertType:string, CompromisedEntity:string, Description:string)[]),
+  (datatable(TimeGenerated:datetime, SystemAlertId:string, IngestedAt:datetime, AlertName:string, AlertType:string, CompromisedEntity:string, Description:string)[]),
   (SecurityAlert
     | where TimeGenerated > ago(lookback)
     | where ProviderName != "ASI Scheduled Alerts"
+    | where isnotempty(SystemAlertId)
+    | extend IngestedAt = coalesce(ingestion_time(), TimeGenerated)
     | where AlertType =~ "AI.Azure_LLMReconnaissance")
-| summarize AttemptCount=count(), make_set(AlertName), make_set(AlertType), arg_max(TimeGenerated, *) by CompromisedEntity
-| where AttemptCount >= 2
+| summarize FirstIngested=min(IngestedAt), arg_max(TimeGenerated, *) by SystemAlertId
+| summarize AttemptCount=count(), LastIngested=max(FirstIngested), make_set(AlertName), make_set(AlertType), arg_max(TimeGenerated, *) by CompromisedEntity
+| where AttemptCount >= 2 and LastIngested > ago(15m)
 | project TimeGenerated, CompromisedEntity, AlertName, AlertType, AttemptCount, Description
 
 // Rule 4: Credential theft in an Azure AI model response
 union isfuzzy=true
-  (datatable(TimeGenerated:datetime, AlertName:string, AlertType:string, AlertSeverity:string, CompromisedEntity:string, Description:string)[]),
+  (datatable(TimeGenerated:datetime, SystemAlertId:string, IngestedAt:datetime, AlertName:string, AlertType:string, AlertSeverity:string, CompromisedEntity:string, Description:string)[]),
   (SecurityAlert
     | where TimeGenerated > ago(1h)
     | where ProviderName != "ASI Scheduled Alerts"
+    | where isnotempty(SystemAlertId)
+    | extend IngestedAt = coalesce(ingestion_time(), TimeGenerated)
     | where AlertType =~ "AI.Azure_CredentialTheftAttempt")
+| summarize FirstIngested=min(IngestedAt), arg_max(TimeGenerated, *) by SystemAlertId
+| where FirstIngested > ago(10m)
 | project TimeGenerated, AlertName, AlertType, AlertSeverity, CompromisedEntity, Description
 
 // Rule 5: Documented Azure AI application/model activity anomalies
 union isfuzzy=true
-  (datatable(TimeGenerated:datetime, AlertName:string, AlertType:string, AlertSeverity:string, CompromisedEntity:string, Description:string)[]),
+  (datatable(TimeGenerated:datetime, SystemAlertId:string, IngestedAt:datetime, AlertName:string, AlertType:string, AlertSeverity:string, CompromisedEntity:string, Description:string)[]),
   (SecurityAlert
     | where TimeGenerated > ago(1h)
     | where ProviderName != "ASI Scheduled Alerts"
+    | where isnotempty(SystemAlertId)
+    | extend IngestedAt = coalesce(ingestion_time(), TimeGenerated)
     | where AlertType in~ (
             "AI.Azure_AnomalousToolInvocation",
             "AI.Azure_DOWDuplicateRequests",
@@ -64,6 +80,8 @@ union isfuzzy=true
             "AI.Azure_AccessFromSuspiciousIP",
             "AI.Azure_AccessAnomaly"
         ))
+| summarize FirstIngested=min(IngestedAt), arg_max(TimeGenerated, *) by SystemAlertId
+| where FirstIngested > ago(10m)
 | project TimeGenerated, AlertName, AlertType, AlertSeverity, CompromisedEntity, Description
 
 // Hunting: Azure AI Services request volume after enabling diagnostics.
