@@ -17,6 +17,22 @@ param sentinelWorkspaceId string
 @description('Object ID of the lab operator - receives AzureML Data Scientist on the Foundry project, not Owner.')
 param operatorObjectId string
 
+@description('Explicit reviewed GA model. Verify tool-call support before running this lab; no automatic replacement is selected.')
+@minLength(1)
+@maxLength(64)
+param modelName string
+@minLength(1)
+@maxLength(64)
+param modelVersion string
+@allowed(['Standard', 'GlobalStandard', 'DataZoneStandard'])
+param modelSkuName string = 'Standard'
+@minValue(1)
+param modelCapacity int = 50
+@minLength(1)
+@maxLength(64)
+param modelDeploymentName string = 'lab-chat'
+
+
 var hubName = 'agent365hub${take(suffix, 6)}'
 var projectName = 'agent365proj${take(suffix, 6)}'
 var aiServicesName = 'agent365ais${take(suffix, 6)}'
@@ -103,16 +119,17 @@ resource aiServices 'Microsoft.CognitiveServices/accounts@2024-10-01' = {
 
 resource modelDeployment 'Microsoft.CognitiveServices/accounts/deployments@2024-10-01' = {
   parent: aiServices
-  name: 'gpt-4-1-mini'
+  name: modelDeploymentName
   sku: {
-    name: 'Standard'
-    capacity: 50
+    name: modelSkuName
+    capacity: modelCapacity
   }
   properties: {
+    versionUpgradeOption: 'NoAutoUpgrade'
     model: {
       format: 'OpenAI'
-      name: 'gpt-4.1-mini'
-      version: '2025-04-14'
+      name: modelName
+      version: modelVersion
     }
   }
 }
@@ -247,7 +264,6 @@ resource openAIUserOperator 'Microsoft.Authorization/roleAssignments@2022-04-01'
 output hubId string = hub.id
 output projectId string = project.id
 output projectName string = project.name
-output projectEndpoint string = 'https://${aiServices.name}.services.ai.azure.com/api/projects/${project.name}'
 output aiServicesEndpoint string = aiServices.properties.endpoint
 output aiServicesName string = aiServices.name
 output aiServicesId string = aiServices.id

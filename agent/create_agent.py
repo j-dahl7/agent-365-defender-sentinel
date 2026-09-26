@@ -85,7 +85,7 @@ TOOLS = [
 ]
 
 def main() -> int:
-    model = os.environ.get("MODEL_DEPLOYMENT", "gpt-4-1-mini")
+    model = os.environ.get("MODEL_DEPLOYMENT", "lab-chat")
     endpoint = os.environ["AI_SERVICES_ENDPOINT"].rstrip("/")
     out = {
         "agent_name": "customer-support-bot",

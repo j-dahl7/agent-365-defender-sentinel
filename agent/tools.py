@@ -14,6 +14,7 @@ the agent loop's response; it does not guarantee a Defender detection.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -66,13 +67,13 @@ def send_email(to: str, subject: str, body: str) -> dict[str, Any]:
 
 def search_docs(title: str) -> dict[str, Any]:
     rag_dir = Path(__file__).resolve().parent / "rag-docs"
-    matches = list(rag_dir.glob(f"{title}*.md")) + list(rag_dir.glob(f"*{title}*.md"))
-    # The title arrives straight from the model, so a '..' segment would walk the
-    # glob out of the corpus. Keep only the matches that still resolve inside it.
-    candidates = [path for path in matches if path.resolve().is_relative_to(rag_dir)]
+    if not isinstance(title, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", title):
+        return {"error": "invalid document title"}
+    docs = sorted(path for path in rag_dir.glob("*.md") if path.is_file() and path.resolve().is_relative_to(rag_dir))
+    candidates = [path for path in docs if path.stem.startswith(title)] or [path for path in docs if title in path.stem]
     if not candidates:
         return {"error": f"no document titled '{title}'"}
-    content = candidates[0].read_text()
+    content = candidates[0].read_text(encoding="utf-8")
     return {"title": candidates[0].stem, "content": content}
 
 

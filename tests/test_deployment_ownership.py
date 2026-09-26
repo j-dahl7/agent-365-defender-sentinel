@@ -88,6 +88,8 @@ class Agent365OwnershipRuntimeTests(unittest.TestCase):
                 "MOCK_TENANT_ID": TENANT_ID,
                 "MOCK_DEPLOYMENT_ID": DEPLOYMENT_ID,
                 "MOCK_TIER": "Standard",
+                "MODEL_NAME": "fixture-chat",
+                "MODEL_VERSION": "2026-01-01",
                 "RESOURCE_GROUP": RESOURCE_GROUP,
                 "SENTINEL_WS_ID": WORKSPACE_ID,
                 "STATE_FILE": str(self.manifest_path),
@@ -183,7 +185,16 @@ elif args[:2] == ["group", "delete"]:
     state["rg_exists"] = False
     save()
 elif args[:3] == ["ad", "signed-in-user", "show"]:
+    if os.environ.get("MOCK_FAIL_SIGNED_IN_USER") == "true": sys.exit(16)
     print("44444444-4444-4444-8444-444444444444")
+elif args[:3] == ["cognitiveservices", "model", "list"]:
+    status = 'Deprecated' if os.environ.get('MOCK_DEPRECATED_MODEL') == 'true' else 'GenerallyAvailable'
+    print(json.dumps([{'model': {'format': 'OpenAI', 'name': 'fixture-chat', 'version': '2026-01-01', 'lifecycleStatus': status,
+          'capabilities': {'chatCompletion': 'true'}, 'skus': [{'name': 'Standard', 'capacity': {'minimum': 1, 'maximum': 50, 'step': 1}}]}}]))
+elif args[:4] == ["cognitiveservices", "account", "deployment", "list"]:
+    print(json.dumps([{'name': os.environ.get('MODEL_DEPLOYMENT_NAME', 'lab-chat')}] if os.environ.get('MOCK_MODEL_PRESENT') == 'true' else []))
+elif args[:4] == ["cognitiveservices", "account", "deployment", "delete"]:
+    if os.environ.get('MOCK_FAIL_MODEL_DELETE') == 'true': sys.exit(33)
 elif args[:3] == ["deployment", "group", "create"]:
     template_file = option("--template-file", "")
     if template_file.endswith("sentinel-rules.bicep"):
@@ -196,11 +207,12 @@ elif args[:3] == ["deployment", "group", "create"]:
         ]
         save()
     else:
+        if os.environ.get("MOCK_FAIL_INFRA") == "true": sys.exit(29)
         print(json.dumps({
             "aiServicesEndpoint": {"value": "https://agent365ais123456.cognitiveservices.azure.com"},
             "aiServicesName": {"value": "agent365ais123456"},
             "aiServicesId": {"value": resource_group_id + "/providers/Microsoft.CognitiveServices/accounts/agent365ais123456"},
-            "openAIDeploymentName": {"value": "mock-model"},
+            "openAIDeploymentName": {"value": os.environ.get("MODEL_DEPLOYMENT_NAME", "lab-chat")},
         }))
 elif args and args[0] == "rest":
     method = option("--method", "GET").upper()
@@ -253,7 +265,7 @@ else:
                   chmod 700 "$target/bin/pip" "$target/bin/python"
                   exit 0
                 fi
-                if [[ "${1:-}" == */agent/endpoint_ownership.py ]]; then
+                if [[ "${1:-}" == */agent/endpoint_ownership.py ]] || [[ "${1:-}" == */scripts/validate-model-selection.py ]]; then
                   exec /usr/bin/python3 "$@"
                 fi
                 exit 91
@@ -288,8 +300,33 @@ else:
             "deployment group create",
             "rest --method DELETE",
             "keyvault purge",
+            "account deployment delete",
         )
         return [call for call in calls if any(fragment in call for fragment in mutation_fragments)]
+
+    def test_operator_and_deprecated_model_fail_before_mutations(self):
+        for toggle in ('MOCK_FAIL_SIGNED_IN_USER', 'MOCK_DEPRECATED_MODEL'):
+            with self.subTest(toggle=toggle):
+                self.log_path.write_text('')
+                result = self._run(DEPLOY_SCRIPT, **{toggle: 'true'})
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(self._mutations(self._calls()), [])
+
+    def test_failed_infrastructure_never_enables_paid_defender(self):
+        result = self._run(DEPLOY_SCRIPT, MOCK_TIER='Free', MOCK_FAIL_INFRA='true', CONFIRM_SUBSCRIPTION_SCOPE='ENABLE-DEFENDER-FOR-AI-SERVICES')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(any('security pricing create' in call for call in self._calls()))
+
+    def test_owned_model_deletion_precedes_group_deletion(self):
+        deployed = self._run(DEPLOY_SCRIPT)
+        self.assertEqual(deployed.returncode, 0, deployed.stderr)
+        self.log_path.write_text('')
+        cleanup = self._run(CLEANUP_SCRIPT, MOCK_MODEL_PRESENT='true')
+        self.assertEqual(cleanup.returncode, 0, cleanup.stderr)
+        calls = self._calls()
+        model_delete = next(i for i, call in enumerate(calls) if 'account deployment delete' in call)
+        group_delete = next(i for i, call in enumerate(calls) if 'group delete' in call)
+        self.assertLess(model_delete, group_delete)
 
     def test_plan_and_collisions_fail_before_any_mutation(self):
         plan = self._run(DEPLOY_SCRIPT, PLAN_ONLY="true", MOCK_TIER="Free")

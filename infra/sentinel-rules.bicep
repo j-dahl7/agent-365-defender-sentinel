@@ -20,10 +20,16 @@ param deploymentId string
 
 var ownershipSuffix = '[Owner: ${ownerMarker}; Deployment: ${deploymentId}]'
 
+resource workspace 'Microsoft.OperationalInsights/workspaces@2022-10-01' existing = {
+  name: workspaceName
+}
+
+
 // ---- Rule 1: Azure AI model jailbreak burst (detected or blocked) ----
 
-resource ruleJailbreakBurst 'Microsoft.OperationalInsights/workspaces/providers/alertRules@2023-02-01-preview' = {
-  name: '${workspaceName}/Microsoft.SecurityInsights/ai-model-jailbreak-burst'
+resource ruleJailbreakBurst 'Microsoft.SecurityInsights/alertRules@2025-09-01' = {
+  scope: workspace
+  name: 'ai-model-jailbreak-burst'
   kind: 'Scheduled'
   properties: {
     displayName: 'LAB - Azure AI Model Jailbreak Attempts (burst)'
@@ -33,21 +39,26 @@ resource ruleJailbreakBurst 'Microsoft.OperationalInsights/workspaces/providers/
     query: '''
 let lookback = 15m;
 union isfuzzy=true
-  (datatable(TimeGenerated:datetime, AlertName:string, AlertType:string, AlertSeverity:string, CompromisedEntity:string)[]),
+  (datatable(TimeGenerated:datetime, SystemAlertId:string, IngestedAt:datetime, AlertName:string, AlertType:string, AlertSeverity:string, CompromisedEntity:string)[]),
   (SecurityAlert
     | where TimeGenerated > ago(lookback)
     | where ProviderName != "ASI Scheduled Alerts"
+    | where isnotempty(SystemAlertId)
+    | extend IngestedAt = coalesce(ingestion_time(), TimeGenerated)
     | where AlertType in~ (
             "AI.Azure_Jailbreak.ContentFiltering.BlockedAttempt",
             "AI.Azure_Jailbreak.ContentFiltering.DetectedAttempt"
         ))
-| summarize count(), make_set(AlertName), make_set(AlertType), arg_max(TimeGenerated, *) by CompromisedEntity
-| where count_ >= 2
-| project TimeGenerated, CompromisedEntity, AlertName, AlertType, AlertSeverity, AttemptCount=count_
+| summarize FirstIngested=min(IngestedAt), arg_max(TimeGenerated, *) by SystemAlertId
+| summarize AttemptCount=count(), LastIngested=max(FirstIngested), make_set(AlertName), make_set(AlertType), arg_max(TimeGenerated, *) by CompromisedEntity
+| where AttemptCount >= 2 and LastIngested > ago(5m)
+| project TimeGenerated, CompromisedEntity, AlertName, AlertType, AlertSeverity, AttemptCount
 '''
     // Run every 5 minutes over a 15-minute window so consecutive evaluations
     // overlap. At PT15M/PT15M the windows are adjacent, so a burst split across
-    // a boundary lands as one alert per window and never reaches count_ >= 2.
+    // a boundary lands as one alert per window. Deduplicate SystemAlertId before
+    // counting and require newly arrived evidence without discarding context.
+    // Scheduler jitter and source retention still require tenant validation.
     queryFrequency: 'PT5M'
     queryPeriod: 'PT15M'
     triggerOperator: 'GreaterThan'
@@ -74,8 +85,9 @@ union isfuzzy=true
 
 // ---- Rule 2: ASCII smuggling against an Azure AI model deployment ----
 
-resource ruleAsciiSmuggling 'Microsoft.OperationalInsights/workspaces/providers/alertRules@2023-02-01-preview' = {
-  name: '${workspaceName}/Microsoft.SecurityInsights/ai-model-ascii-smuggling'
+resource ruleAsciiSmuggling 'Microsoft.SecurityInsights/alertRules@2025-09-01' = {
+  scope: workspace
+  name: 'ai-model-ascii-smuggling'
   kind: 'Scheduled'
   properties: {
     displayName: 'LAB - Azure AI Model ASCII Smuggling'
@@ -84,11 +96,15 @@ resource ruleAsciiSmuggling 'Microsoft.OperationalInsights/workspaces/providers/
     enabled: true
     query: '''
 union isfuzzy=true
-  (datatable(TimeGenerated:datetime, AlertName:string, AlertType:string, AlertSeverity:string, CompromisedEntity:string, Description:string)[]),
+  (datatable(TimeGenerated:datetime, SystemAlertId:string, IngestedAt:datetime, AlertName:string, AlertType:string, AlertSeverity:string, CompromisedEntity:string, Description:string)[]),
   (SecurityAlert
     | where TimeGenerated > ago(1h)
     | where ProviderName != "ASI Scheduled Alerts"
+    | where isnotempty(SystemAlertId)
+    | extend IngestedAt = coalesce(ingestion_time(), TimeGenerated)
     | where AlertType =~ "AI.Azure_ASCIISmuggling")
+| summarize FirstIngested=min(IngestedAt), arg_max(TimeGenerated, *) by SystemAlertId
+| where FirstIngested > ago(10m)
 | project TimeGenerated, AlertName, AlertType, AlertSeverity, CompromisedEntity, Description
 '''
     queryFrequency: 'PT10M'
@@ -114,8 +130,9 @@ union isfuzzy=true
 
 // ---- Rule 3: LLM reconnaissance against an Azure AI model deployment ----
 
-resource ruleLlmReconnaissance 'Microsoft.OperationalInsights/workspaces/providers/alertRules@2023-02-01-preview' = {
-  name: '${workspaceName}/Microsoft.SecurityInsights/ai-model-llm-reconnaissance'
+resource ruleLlmReconnaissance 'Microsoft.SecurityInsights/alertRules@2025-09-01' = {
+  scope: workspace
+  name: 'ai-model-llm-reconnaissance'
   kind: 'Scheduled'
   properties: {
     displayName: 'LAB - Azure AI Model LLM Reconnaissance'
@@ -125,13 +142,16 @@ resource ruleLlmReconnaissance 'Microsoft.OperationalInsights/workspaces/provide
     query: '''
 let lookback = 1h;
 union isfuzzy=true
-  (datatable(TimeGenerated:datetime, AlertName:string, AlertType:string, CompromisedEntity:string, Description:string)[]),
+  (datatable(TimeGenerated:datetime, SystemAlertId:string, IngestedAt:datetime, AlertName:string, AlertType:string, CompromisedEntity:string, Description:string)[]),
   (SecurityAlert
     | where TimeGenerated > ago(lookback)
     | where ProviderName != "ASI Scheduled Alerts"
+    | where isnotempty(SystemAlertId)
+    | extend IngestedAt = coalesce(ingestion_time(), TimeGenerated)
     | where AlertType =~ "AI.Azure_LLMReconnaissance")
-| summarize AttemptCount=count(), make_set(AlertName), make_set(AlertType), arg_max(TimeGenerated, *) by CompromisedEntity
-| where AttemptCount >= 2
+| summarize FirstIngested=min(IngestedAt), arg_max(TimeGenerated, *) by SystemAlertId
+| summarize AttemptCount=count(), LastIngested=max(FirstIngested), make_set(AlertName), make_set(AlertType), arg_max(TimeGenerated, *) by CompromisedEntity
+| where AttemptCount >= 2 and LastIngested > ago(15m)
 | project TimeGenerated, CompromisedEntity, AlertName, AlertType, AttemptCount, Description
 '''
     queryFrequency: 'PT15M'
@@ -157,8 +177,9 @@ union isfuzzy=true
 
 // ---- Rule 4: Credential theft in an Azure AI model response ----
 
-resource ruleCredentialTheft 'Microsoft.OperationalInsights/workspaces/providers/alertRules@2023-02-01-preview' = {
-  name: '${workspaceName}/Microsoft.SecurityInsights/ai-model-credential-theft'
+resource ruleCredentialTheft 'Microsoft.SecurityInsights/alertRules@2025-09-01' = {
+  scope: workspace
+  name: 'ai-model-credential-theft'
   kind: 'Scheduled'
   properties: {
     displayName: 'LAB - Azure AI Model Credential Theft'
@@ -167,11 +188,15 @@ resource ruleCredentialTheft 'Microsoft.OperationalInsights/workspaces/providers
     enabled: true
     query: '''
 union isfuzzy=true
-  (datatable(TimeGenerated:datetime, AlertName:string, AlertType:string, AlertSeverity:string, CompromisedEntity:string, Description:string)[]),
+  (datatable(TimeGenerated:datetime, SystemAlertId:string, IngestedAt:datetime, AlertName:string, AlertType:string, AlertSeverity:string, CompromisedEntity:string, Description:string)[]),
   (SecurityAlert
     | where TimeGenerated > ago(1h)
     | where ProviderName != "ASI Scheduled Alerts"
+    | where isnotempty(SystemAlertId)
+    | extend IngestedAt = coalesce(ingestion_time(), TimeGenerated)
     | where AlertType =~ "AI.Azure_CredentialTheftAttempt")
+| summarize FirstIngested=min(IngestedAt), arg_max(TimeGenerated, *) by SystemAlertId
+| where FirstIngested > ago(10m)
 | project TimeGenerated, AlertName, AlertType, AlertSeverity, CompromisedEntity, Description
 '''
     queryFrequency: 'PT10M'
@@ -197,8 +222,9 @@ union isfuzzy=true
 
 // ---- Rule 5: Documented Azure AI application/model activity anomalies ----
 
-resource ruleAnomalousActivity 'Microsoft.OperationalInsights/workspaces/providers/alertRules@2023-02-01-preview' = {
-  name: '${workspaceName}/Microsoft.SecurityInsights/ai-model-anomalous-activity'
+resource ruleAnomalousActivity 'Microsoft.SecurityInsights/alertRules@2025-09-01' = {
+  scope: workspace
+  name: 'ai-model-anomalous-activity'
   kind: 'Scheduled'
   properties: {
     displayName: 'LAB - Azure AI Model/Application Anomalous Activity'
@@ -207,10 +233,12 @@ resource ruleAnomalousActivity 'Microsoft.OperationalInsights/workspaces/provide
     enabled: true
     query: '''
 union isfuzzy=true
-  (datatable(TimeGenerated:datetime, AlertName:string, AlertType:string, AlertSeverity:string, CompromisedEntity:string, Description:string)[]),
+  (datatable(TimeGenerated:datetime, SystemAlertId:string, IngestedAt:datetime, AlertName:string, AlertType:string, AlertSeverity:string, CompromisedEntity:string, Description:string)[]),
   (SecurityAlert
     | where TimeGenerated > ago(1h)
     | where ProviderName != "ASI Scheduled Alerts"
+    | where isnotempty(SystemAlertId)
+    | extend IngestedAt = coalesce(ingestion_time(), TimeGenerated)
     | where AlertType in~ (
             "AI.Azure_AnomalousToolInvocation",
             "AI.Azure_DOWDuplicateRequests",
@@ -220,6 +248,8 @@ union isfuzzy=true
             "AI.Azure_AccessFromSuspiciousIP",
             "AI.Azure_AccessAnomaly"
         ))
+| summarize FirstIngested=min(IngestedAt), arg_max(TimeGenerated, *) by SystemAlertId
+| where FirstIngested > ago(10m)
 | project TimeGenerated, AlertName, AlertType, AlertSeverity, CompromisedEntity, Description
 '''
     queryFrequency: 'PT10M'

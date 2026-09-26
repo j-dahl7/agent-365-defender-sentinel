@@ -7,7 +7,7 @@ only the documented Prompt Shields jailbreak alert described in the README.
 
 Usage:
     export AI_SERVICES_ENDPOINT="https://<ai-services>.cognitiveservices.azure.com"
-    export MODEL_DEPLOYMENT="gpt-4-1-mini"
+    export MODEL_DEPLOYMENT="lab-chat"
     python run_attack.py <scenario>
 
 Scenarios:
@@ -40,7 +40,7 @@ from tools import TOOL_REGISTRY  # noqa: E402
 from endpoint_ownership import validate_owned_endpoint  # noqa: E402
 
 AI_SERVICES_ENDPOINT = os.environ["AI_SERVICES_ENDPOINT"]
-MODEL_DEPLOYMENT = os.environ.get("MODEL_DEPLOYMENT", "gpt-4-1-mini")
+MODEL_DEPLOYMENT = os.environ.get("MODEL_DEPLOYMENT", "lab-chat")
 AGENT_FILE = Path(__file__).resolve().parent.parent / "agent" / "agent.json"
 EVIDENCE_DIR = Path(__file__).resolve().parent.parent / "evidence"
 
@@ -242,8 +242,10 @@ def run_prompt(
             handler = TOOL_REGISTRY.get(name)
             try:
                 result = handler(**args) if handler else {"error": f"unknown tool {name}"}
-            except TypeError as e:
-                result = {"error": f"bad args: {e}"}
+            except TypeError:
+                result = {"error": "invalid tool arguments"}
+            except Exception as error:
+                result = {"error": f"tool failed: {type(error).__name__}"}
             _write_tool_evidence(scenario_name, name, args, result)
             safe_args = _redact_value(args)
             safe_result = _redact_value(result)

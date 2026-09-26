@@ -17,6 +17,12 @@ RESOURCE_GROUP="${RESOURCE_GROUP:-agent365-lab-rg}"
 LOCATION="${LOCATION:-eastus2}"
 PLAN_ONLY="${PLAN_ONLY:-false}"
 : "${SENTINEL_WS_ID:?Set SENTINEL_WS_ID to your Sentinel workspace resource ID}"
+: "${MODEL_NAME:?Set MODEL_NAME to a reviewed GA Chat Completions model}"
+: "${MODEL_VERSION:?Set MODEL_VERSION to its exact reviewed version}"
+MODEL_SKU="${MODEL_SKU:-Standard}"
+MODEL_CAPACITY="${MODEL_CAPACITY:-50}"
+MODEL_DEPLOYMENT_NAME="${MODEL_DEPLOYMENT_NAME:-lab-chat}"
+
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LAB_DIR="$(dirname "$SCRIPT_DIR")"
@@ -54,6 +60,13 @@ for command_name in az jq python3; do
   command -v "$command_name" >/dev/null 2>&1 || fail "Required command '$command_name' was not found."
 done
 
+python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 12) else 1)' || fail 'Python 3.12 or later is required; no changes were made.'
+for value in "$MODEL_NAME" "$MODEL_VERSION" "$MODEL_DEPLOYMENT_NAME"; do
+  [[ "$value" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$ ]] || fail 'Model names/version must be simple bounded identifiers.'
+done
+case "$MODEL_SKU" in Standard|GlobalStandard|DataZoneStandard) ;; *) fail 'Unsupported model SKU; choose Standard, GlobalStandard, or DataZoneStandard explicitly.' ;; esac
+[[ "$MODEL_CAPACITY" =~ ^[1-9][0-9]{0,5}$ ]] || fail 'MODEL_CAPACITY must be a positive integer.'
+
 case "$PLAN_ONLY" in
   true|false) ;;
   *) fail 'PLAN_ONLY must be true or false.' ;;
@@ -62,11 +75,11 @@ esac
 SENTINEL_WS_ID="${SENTINEL_WS_ID%/}"
 IFS='/' read -r -a workspace_parts <<< "${SENTINEL_WS_ID#/}"
 if [ "${#workspace_parts[@]}" -ne 8 ] ||
-   [ "${workspace_parts[0],,}" != 'subscriptions' ] ||
-   [ "${workspace_parts[2],,}" != 'resourcegroups' ] ||
-   [ "${workspace_parts[4],,}" != 'providers' ] ||
-   [ "${workspace_parts[5],,}" != 'microsoft.operationalinsights' ] ||
-   [ "${workspace_parts[6],,}" != 'workspaces' ]; then
+   [ "$(normalize_id "${workspace_parts[0]}")" != 'subscriptions' ] ||
+   [ "$(normalize_id "${workspace_parts[2]}")" != 'resourcegroups' ] ||
+   [ "$(normalize_id "${workspace_parts[4]}")" != 'providers' ] ||
+   [ "$(normalize_id "${workspace_parts[5]}")" != 'microsoft.operationalinsights' ] ||
+   [ "$(normalize_id "${workspace_parts[6]}")" != 'workspaces' ]; then
   fail 'SENTINEL_WS_ID must be an exact Log Analytics workspace resource ID.'
 fi
 WORKSPACE_SUBSCRIPTION_ID="${workspace_parts[1]}"
@@ -85,6 +98,10 @@ if ! CURRENT_TIER="$(az security pricing show --name AI --subscription "$SUBSCRI
   fail 'Unable to determine the Defender for AI Services pricing tier; no changes were made.'
 fi
 [ -n "$CURRENT_TIER" ] || fail 'Defender for AI Services returned an empty pricing tier; no changes were made.'
+case "$CURRENT_TIER" in Free|Standard) ;; *) fail 'Unexpected Defender for AI tier; no changes were made.' ;; esac
+OPERATOR_OID="$(az ad signed-in-user show --query id -o tsv)" || fail 'Signed-in Entra user required; no changes were made.'
+[[ "$OPERATOR_OID" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]] || fail 'Signed-in user returned an invalid object ID; no changes were made.'
+
 
 RULE_IDS_JSON="$(printf '%s\n' "${RULE_IDS[@]}" | jq -R . | jq -s .)"
 RULE_NAMES_JSON="$(printf '%s\n' "${RULE_DISPLAY_NAMES[@]}" | jq -R . | jq -s .)"
@@ -193,6 +210,9 @@ verify_rule_inventory() {
 }
 
 verify_rule_inventory "$RULES_JSON" false
+MODEL_CATALOG="$(az cognitiveservices model list --location "$LOCATION" --subscription "$SUBSCRIPTION_ID" --output json)"
+printf '%s' "$MODEL_CATALOG" | python3 "$LAB_DIR/scripts/validate-model-selection.py" \
+  --name "$MODEL_NAME" --version "$MODEL_VERSION" --sku "$MODEL_SKU" --capacity "$MODEL_CAPACITY"
 
 if [ "$PLAN_ONLY" = 'true' ]; then
   cat <<PLAN
@@ -205,6 +225,7 @@ Resource group:        $EXPECTED_RG_ID
 Sentinel workspace:    $SENTINEL_WS_ID
 Sentinel rules:        ${#RULE_IDS[@]} deterministic owner-marked rules
 Defender AI tier:      $CURRENT_TIER
+Reviewed model:        $MODEL_NAME $MODEL_VERSION / $MODEL_SKU / capacity $MODEL_CAPACITY
 PLAN
   exit 0
 fi
@@ -212,6 +233,13 @@ fi
 if [ "$CURRENT_TIER" != 'Standard' ] && [ "${CONFIRM_SUBSCRIPTION_SCOPE:-}" != 'ENABLE-DEFENDER-FOR-AI-SERVICES' ]; then
   fail 'This deployment would enable the paid Defender for AI Services Standard plan. Review the active subscription, then set CONFIRM_SUBSCRIPTION_SCOPE=ENABLE-DEFENDER-FOR-AI-SERVICES.'
 fi
+
+# Local setup failures must happen before resource or subscription mutations.
+VENV="${VENV:-$LAB_DIR/.venv}"
+if [ ! -d "$VENV" ]; then
+  python3 -m venv "$VENV"
+fi
+"$VENV/bin/pip" install --quiet --require-hashes -r "$LAB_DIR/requirements.txt"
 
 if [ "$NEW_RESOURCE_GROUP" = 'true' ]; then
   echo '=== [2/8] Creating and recording the owned resource group ==='
@@ -271,22 +299,14 @@ echo '=== [3/8] Registering resource providers and configuring Defender ==='
 for provider_name in Microsoft.CognitiveServices Microsoft.MachineLearningServices Microsoft.Security Microsoft.ContainerRegistry; do
   az provider register --namespace "$provider_name" --subscription "$SUBSCRIPTION_ID" --only-show-errors >/dev/null
 done
-if [ "$CURRENT_TIER" != 'Standard' ]; then
-  az security pricing create --name AI --tier Standard --subscription "$SUBSCRIPTION_ID" --only-show-errors >/dev/null
-  echo '  Defender for AI Services -> Standard'
-else
-  echo '  Defender for AI Services already Standard'
-fi
-
-OPERATOR_OID="$(az ad signed-in-user show --query id -o tsv)"
-[ -n "$OPERATOR_OID" ] || fail 'Could not determine the signed-in Entra user object ID.'
-
 echo '=== [4/8] Deploying infra (Foundry hub + project + OpenAI + ACR) ==='
 DEPLOY_OUT="$(az deployment group create \
   --resource-group "$RESOURCE_GROUP" \
   --subscription "$SUBSCRIPTION_ID" \
   --template-file "$LAB_DIR/infra/main.bicep" \
-  --parameters sentinelWorkspaceId="$SENTINEL_WS_ID" operatorObjectId="$OPERATOR_OID" \
+  --parameters location="$LOCATION" sentinelWorkspaceId="$SENTINEL_WS_ID" operatorObjectId="$OPERATOR_OID" \
+    modelName="$MODEL_NAME" modelVersion="$MODEL_VERSION" modelSkuName="$MODEL_SKU" \
+    modelCapacity="$MODEL_CAPACITY" modelDeploymentName="$MODEL_DEPLOYMENT_NAME" \
   --query properties.outputs \
   -o json)"
 
@@ -295,21 +315,41 @@ MODEL_DEPLOYMENT="$(jq -er '.openAIDeploymentName.value | strings | select(lengt
 AI_SERVICES_ID="$(jq -er '.aiServicesId.value | strings | select(length > 0)' <<< "$DEPLOY_OUT")"
 AI_SERVICES_NAME="$(jq -er '.aiServicesName.value | strings | select(length > 0)' <<< "$DEPLOY_OUT")"
 python3 "$LAB_DIR/agent/endpoint_ownership.py" "$STATE_FILE" "$AI_SERVICES_ENDPOINT" "$AI_SERVICES_ID" "$AI_SERVICES_NAME"
+[ "$MODEL_DEPLOYMENT" = "$MODEL_DEPLOYMENT_NAME" ] || fail 'Azure returned a different model deployment name.'
+umask 077
+STATE_TMP="$(mktemp "${STATE_FILE}.tmp.XXXXXX")"
+trap 'rm -f "${STATE_TMP:-}"' EXIT
+jq --arg model "$MODEL_DEPLOYMENT" --arg operator "$OPERATOR_OID" '.ai_model_deployment_name = $model | .operator_object_id = $operator' "$STATE_FILE" > "$STATE_TMP"
+mv -f "$STATE_TMP" "$STATE_FILE"
+trap - EXIT
+
+# Do not enable a shared paid plan until the lab infrastructure is usable.
+LATEST_TIER="$(az security pricing show --name AI --subscription "$SUBSCRIPTION_ID" --query pricingTier -o tsv)"
+case "$LATEST_TIER" in Free|Standard) ;; *) fail 'Unable to revalidate Defender pricing; no pricing write was attempted.' ;; esac
+if [ "$LATEST_TIER" != "$CURRENT_TIER" ] && [ "$LATEST_TIER" != 'Standard' ]; then
+  fail 'Shared Defender pricing changed during deployment; investigate before changing subscription billing.'
+fi
+if [ "$LATEST_TIER" != 'Standard' ]; then
+  az security pricing create --name AI --tier Standard --subscription "$SUBSCRIPTION_ID" --only-show-errors >/dev/null
+  STATE_TMP="$(mktemp "${STATE_FILE}.tmp.XXXXXX")"
+  trap 'rm -f "${STATE_TMP:-}"' EXIT
+  jq --arg prior "$LATEST_TIER" '.defender_ai_enabled_by_lab = true | .defender_ai_prior_tier = $prior' "$STATE_FILE" > "$STATE_TMP"
+  mv -f "$STATE_TMP" "$STATE_FILE"
+  trap - EXIT
+  echo 'Defender for AI Services Standard was enabled subscription-wide. Cleanup preserves shared billing; review the recorded prior tier.'
+fi
+
 echo "  AI_SERVICES_ENDPOINT=$AI_SERVICES_ENDPOINT"
 echo "  MODEL_DEPLOYMENT=$MODEL_DEPLOYMENT"
 
 echo '=== [5/8] Writing agent config from hash-locked dependencies ==='
-VENV="${VENV:-$LAB_DIR/.venv}"
-if [ ! -d "$VENV" ]; then
-  python3 -m venv "$VENV"
-fi
-"$VENV/bin/pip" install --quiet --require-hashes -r "$LAB_DIR/requirements.lock"
 pushd "$LAB_DIR/agent" >/dev/null
 AI_SERVICES_ENDPOINT="$AI_SERVICES_ENDPOINT" MODEL_DEPLOYMENT="$MODEL_DEPLOYMENT" "$VENV/bin/python" create_agent.py
 popd >/dev/null
 
 echo '=== [6/8] Deploying owner-marked Sentinel analytics rules ==='
 az deployment group create \
+  --name "agent365-rules-${DEPLOYMENT_ID}" \
   --resource-group "$WORKSPACE_RG" \
   --subscription "$SUBSCRIPTION_ID" \
   --template-file "$LAB_DIR/infra/sentinel-rules.bicep" \

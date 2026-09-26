@@ -55,9 +55,9 @@ for the separate licensed agent-level path.
   in its `SecurityAlert` table. This lab does not create a Defender data
   connector or configure that ingestion path; a successful resource deployment
   alone does not establish alert coverage.
-- Azure CLI, Bash, `jq`, and Python 3.10 or later
+- Azure CLI, Bash, `jq`, and Python 3.12 or later (the hash lock is compiled and tested for 3.12)
 - Permission to deploy resources and Sentinel analytics rules
-- Regional quota and availability for the bundled `gpt-4.1-mini` deployment
+- Regional quota and availability for an explicitly reviewed GA Chat Completions model with function-tool support
 
 An Agent 365 license is not required for this lab's model-level path. It is
 required if you extend the exercise to Agent 365-managed agent protection.
@@ -94,7 +94,7 @@ Microsoft Sentinel analytics rules
 
 | Resource | Purpose |
 |---|---|
-| Azure AI Services | Hosts the `gpt-4.1-mini` deployment used by the agent loop |
+| Azure AI Services | Hosts the explicitly selected, version-pinned model used by the agent loop |
 | Azure AI Foundry hub/project | Provides the Foundry workspace context for the lab |
 | Azure Container Registry | Placeholder for custom hosted-agent container images |
 | Key Vault + Storage | Foundry hub dependencies |
@@ -117,6 +117,20 @@ Set the full resource ID of the intended existing Sentinel workspace:
 export SENTINEL_WS_ID="/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.OperationalInsights/workspaces/<workspace>"
 ```
 
+Select a model deliberately before deploying. The former `gpt-4.1-mini` default is deprecated; this revision does not silently substitute another model, change data residency, or enable automatic model-version upgrades. Inspect the [location model catalogue](https://learn.microsoft.com/en-us/rest/api/aiservices/accountmanagement/models/list?view=rest-aiservices-accountmanagement-2024-10-01) and [retirement schedule](https://learn.microsoft.com/en-us/azure/foundry/openai/concepts/model-retirement-schedule), then set:
+
+```bash
+export LOCATION="eastus2"
+az cognitiveservices model list --location "$LOCATION" --output json
+export MODEL_NAME="reviewed-model-name"
+export MODEL_VERSION="exact-reviewed-version"
+export MODEL_SKU="Standard" # GlobalStandard/DataZoneStandard require a deliberate residency decision
+export MODEL_CAPACITY="50"
+export MODEL_DEPLOYMENT_NAME="lab-chat"
+```
+
+The placeholders intentionally cannot deploy. Preflight checks that the chosen version is generally available, supports Chat Completions, and advertises the requested SKU/capacity. It does not reserve quota or prove function-tool compatibility, regional deployment success, Defender alert behavior, or end-user enrichment. Verify these for the selected model. No cloud write occurs on a failed preflight.
+
 Only if the paid plan is not already Standard, review pricing and explicitly confirm the subscription-scoped change:
 
 ```bash
@@ -127,7 +141,7 @@ Install the pinned Python dependencies and deploy:
 
 ```bash
 python3 -m venv .venv
-.venv/bin/pip install --require-hashes -r requirements.lock
+.venv/bin/pip install --require-hashes -r requirements.txt
 
 # Read-only ownership, collision, workspace, and billing preview.
 PLAN_ONLY=true ./scripts/deploy-lab.sh
@@ -144,7 +158,7 @@ commit recorded with its state file and run that revision's cleanup before
 deploying `v2`. The current scripts fail closed rather than adopting or
 overwriting the retired rule set.
 
-Deployment inputs are required `SENTINEL_WS_ID`, optional `RESOURCE_GROUP`
+Deployment inputs require `SENTINEL_WS_ID`, `MODEL_NAME`, and `MODEL_VERSION`; optional `RESOURCE_GROUP`
 (default `agent365-lab-rg`), optional `LOCATION` (default `eastus2`), and the
 conditional subscription-scope confirmation described above.
 
@@ -152,7 +166,7 @@ Run one attack:
 
 ```bash
 export AI_SERVICES_ENDPOINT="https://<ai-services>.cognitiveservices.azure.com"
-export MODEL_DEPLOYMENT="gpt-4-1-mini"
+export MODEL_DEPLOYMENT="lab-chat"
 
 .venv/bin/python attacks/run_attack.py jailbreak
 ```
@@ -197,6 +211,8 @@ The Bicep template deploys five scheduled analytics rules:
 4. `LAB - Azure AI Model Credential Theft` — matches `AI.Azure_CredentialTheftAttempt`
 5. `LAB - Azure AI Model/Application Anomalous Activity` — matches documented anomalous-tool, wallet-abuse, and access-anomaly IDs
 
+The rules deduplicate `SystemAlertId` within each lookback and retain the first ingestion time before correlation. A fresh-evidence gate limits repeated overlapping matches while preserving older burst context. This is not an exactly-once guarantee: scheduler jitter, late source data, updated alerts, and missing IDs require tenant validation.
+
 The rules correlate Defender `SecurityAlert` records by exact `AlertType`; they
 do not use display-name substring matches. AI Services diagnostic logs are also
 routed to the workspace and land in the shared `AzureDiagnostics` table.
@@ -209,6 +225,7 @@ telemetry rather than a stable detection contract.
 There are no VMs or AKS nodes in this lab. Costs come from:
 
 - Azure AI Services token usage
+- Subscription-wide Defender for AI Services Standard coverage, including other AI resources in the subscription when this lab enables the plan
 - Log Analytics ingestion and retention
 - Minimal storage, Key Vault, ACR, and App Insights resources
 
@@ -225,6 +242,10 @@ PLAN_ONLY=true ./scripts/cleanup.sh
 ```
 
 Cleanup requires the deployment-generated `.agent365-lab-state.json`, verifies the active tenant/subscription, the exact resource-group ID and tags, and every present rule's ID, display name, and deployment marker before the first delete. It fails closed on any mismatch or Azure error, retains the state file for asynchronous deletion verification and safe retry, does not delete the shared Sentinel workspace, and does not disable the subscription-level Defender for AI Services plan.
+
+The manifest records whether this lab enabled the Defender plan and its prior tier. Cleanup surfaces that metadata but does not restore shared pricing automatically; another workload or administrator may depend on the current setting. The plan change now happens only after resource/model deployment succeeds, and local package installation plus operator/model preflights happen before cloud writes.
+
+When the manifest includes a complete verified model-deployment identity, cleanup deletes that deployment before requesting group deletion to release its quota. Account and vault soft-delete name reservations can outlive resource-group deletion. For a fresh lab after cleanup, use a new resource-group name and a separate state-file path, or explicitly review provider-supported recovery of the old resources. No automatic purge is introduced, and exact provider release timing is not guaranteed by this script.
 
 Cleanup never purges a Key Vault. The legacy `PURGE_KEYVAULT_NAME` and `CONFIRM_KEYVAULT_PURGE` environment controls are rejected before any Azure calls, including when the resource group is absent. Unset them before running cleanup. Soft-deleted vaults retain their configured recovery window and can temporarily reserve their names. Any irreversible purge is a separate manual Azure-owner operation requiring independent verification of the exact deleted vault and its retention/purge-protection policy; this helper provides no purge shortcut.
 
@@ -248,3 +269,12 @@ XDR provide the separate managed-agent layer.
 - [Transition Foundry and Copilot Studio agent security to Agent 365](https://learn.microsoft.com/en-us/defender-xdr/security-for-ai/transition-agent-security-to-agent-365)
 - [Detect and investigate threats to AI agents](https://learn.microsoft.com/en-us/defender-xdr/security-for-ai/ai-agent-detection-protection)
 - [Enable security for AI agents](https://learn.microsoft.com/en-us/defender-xdr/security-for-ai/get-started-defender-security-for-ai)
+
+
+## September 25, 2026 source repair boundary
+
+Offline repairs add model/operator/dependency preflights, safer billing order, typed Sentinel resources, scoped ARM deployment names, literal document-title handling, and ingestion-aware correlation. No Azure resources were deployed and no fresh Defender detections were observed. Historical April evidence above remains historical. The client still exercises the model-level API; no new user-security-context enrichment or hosted-agent evidence is claimed.
+
+Runtime dependency inputs live in `requirements.in`; pip-compile's hashed output is `requirements.txt`, allowing Dependabot to update the supported pair. Regenerate with Python 3.12 and the command recorded in the lock header; review major SDK changes separately. Bash entry points are syntax-checked individually; Windows users should run them in a supported Unix environment such as WSL with Python 3.12, Azure CLI and jq.
+
+The classic Foundry scaffolding remains intentional future-work infrastructure. The unsupported synthetic projectEndpoint output has been removed; it was not a usable Azure ML endpoint. No automatic resource-topology or authentication migration is implied.
