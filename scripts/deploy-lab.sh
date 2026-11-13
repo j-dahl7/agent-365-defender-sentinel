@@ -376,7 +376,8 @@ cat <<SUMMARY
     # Run a single attack:
     $VENV/bin/python $LAB_DIR/attacks/run_attack.py jailbreak
 
-    # Or run every scenario (takes ~5 minutes):
+    # Or run every scenario. This includes the optional 200-request
+    # wallet-attack volume test, so allow extra time and cost:
     $VENV/bin/python $LAB_DIR/attacks/run_attack.py all
 
     # Alert generation and ingestion are nondeterministic. Hunt by the current
