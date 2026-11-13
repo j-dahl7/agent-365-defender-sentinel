@@ -57,3 +57,12 @@ class ReviewRepairs(unittest.TestCase):
             self.assertIn('coalesce(ingestion_time(), TimeGenerated)', query)
         self.assertIn('LastIngested > ago(5m)', queries[0])
         self.assertIn('LastIngested > ago(15m)', queries[2])
+
+    def test_summary_names_the_volume_test_instead_of_promising_a_duration(self):
+        # "all" includes the 200-request wallet-attack scenario, whose run time
+        # depends on the deployment's throughput.
+        source = (ROOT / 'scripts/deploy-lab.sh').read_text()
+        summary = source.split('cat <<SUMMARY', 1)[1].split('\nSUMMARY', 1)[0]
+        self.assertIn('attacks/run_attack.py all', summary)
+        self.assertIn('200-request', summary)
+        self.assertNotRegex(summary, r'takes ~?\d+ minutes?')
